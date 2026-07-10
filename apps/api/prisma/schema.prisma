@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum OrgType {
+  COOPERATIVE
+  TRADING
+  PRODUCER
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+  PRODUCER
+}
+
+enum Crop {
+  SOJA
+  MILHO
+  TRIGO
+}
+
+enum ContractStatus {
+  RASCUNHO
+  PENDENTE_ASSINATURA
+  ASSINADO
+  ENTREGA_PARCIAL
+  LIQUIDADO
+  CANCELADO
+}
+
+enum ContractEventType {
+  CRIADO
+  STATUS_ALTERADO
+  ENTREGA_REGISTRADA
+  LAUDO_ADICIONADO
+  PAGAMENTO_LIBERADO
+  ASSINADO
+}
+
+enum GradeClass {
+  TIPO_1
+  TIPO_2
+  TIPO_3
+  FORA_DE_TIPO
+}
+
+enum OfferStatus {
+  ABERTA
+  EM_NEGOCIACAO
+  CONVERTIDA
+  EXPIRADA
+  CANCELADA
+}
+
+enum LoteStatus {
+  PLANTADO
+  COLHIDO
+  BENEFICIAMENTO
+  DISPONIVEL
+  OFERTADO
+  VENDIDO
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+/// NÃO filtrada pelo middleware de RLS: compradores precisam buscar/ler orgs de produtores.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  type      OrgType
+  cnpj      String?  @unique
+  city      String?
+  state     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  fieldReadings FieldReading[]
+  lotes         Lote[]
+  offers        Offer[]
+
+  contractsAsBuyer  Contract[] @relation("ContractBuyer")
+  contractsAsSeller Contract[] @relation("ContractSeller")
+}
+
+/// tenant-owned (organizationId) — filtrada cega pelo middleware de RLS.
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
+  name           String
+  role           UserRole
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  deliveriesRegistered Delivery[] @relation("DeliveryRegisteredBy")
+  contractEvents       ContractEvent[]
+}
+
+/// Compartilhado entre dois tenants (comprador/vendedor) — acesso via contract-access.ts, não RLS cega.
+model Contract {
+  id                String         @id @default(cuid())
+  number            String         @unique
+  buyerOrgId        String
+  buyerOrg          Organization   @relation("ContractBuyer", fields: [buyerOrgId], references: [id])
+  sellerOrgId       String
+  sellerOrg         Organization   @relation("ContractSeller", fields: [sellerOrgId], references: [id])
+  crop              Crop
+  quantityKg        Int
+  pricePerSc60Cents Int
+  totalValueCents   Int
+  deliveryDeadline  DateTime
+  status            ContractStatus @default(RASCUNHO)
+  contractHash      String?
+  signedByBuyerAt   DateTime?
+  signedBySellerAt  DateTime?
+  agronomicData     Json?
+  deadlineWarningSentAt DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  events     ContractEvent[]
+  deliveries Delivery[]
+  offer      Offer?
+
+  @@index([buyerOrgId])
+  @@index([sellerOrgId])
+}
+
+/// Acesso via contract-access.ts (segue o Contract pai).
+model ContractEvent {
+  id               String            @id @default(cuid())
+  contractId       String
+  contract         Contract          @relation(fields: [contractId], references: [id])
+  type             ContractEventType
+  payload          Json
+  actorUserId      String?
+  actorUser        User?             @relation(fields: [actorUserId], references: [id])
+  blockchainTxHash String?
+  createdAt        DateTime          @default(now())
+
+  @@index([contractId])
+}
+
+/// Acesso via contract-access.ts. Escrita só pelo comprador (regra aplicada no service).
+model Delivery {
+  id                 String         @id @default(cuid())
+  contractId         String
+  contract           Contract       @relation(fields: [contractId], references: [id])
+  quantityKg         Int
+  deliveredAt        DateTime
+  registeredByUserId String
+  registeredByUser   User           @relation("DeliveryRegisteredBy", fields: [registeredByUserId], references: [id])
+  paidAt             DateTime?
+  createdAt          DateTime       @default(now())
+
+  qualityReport QualityReport?
+
+  @@index([contractId])
+}
+
+/// Laudo — acesso via Delivery -> Contract (contract-access.ts).
+model QualityReport {
+  id                 String     @id @default(cuid())
+  deliveryId         String     @unique
+  delivery           Delivery   @relation(fields: [deliveryId], references: [id])
+  moisturePct        Float
+  impuritiesPct      Float
+  brokenGrainsPct    Float
+  gradeClass         GradeClass
+  discountPct        Float
+  discountValueCents Int
+  finalValueCents    Int
+  createdAt          DateTime   @default(now())
+}
+
+/// tenant-owned (organizationId = produtor).
+model FieldReading {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  crop             Crop
+  season           String
+  yieldScHa        Float?
+  harvestMoisture  Float?
+  ndvi             Float?
+  soilData         Json?
+  plantPopulation  Int?
+  rainfallMm       Float?
+  gddAccumulated   Float?
+  avgTempC         Float?
+  frostEvents      Int?
+  machineData      Json?
+  yieldMap         Json?
+  readingDate      DateTime
+  createdAt        DateTime     @default(now())
+
+  lotes Lote[]
+
+  @@index([organizationId])
+}
+
+/// tenant-owned (organizationId = produtor). Sem fonte original — desenhado do zero no rebuild.
+model Lote {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id])
+  crop                Crop
+  season              String
+  areaHectares        Float
+  quantityKg          Int
+  status              LoteStatus   @default(PLANTADO)
+  beneficiamentoLocal String?
+  beneficiamentoData  DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  fieldReadings FieldReading[]
+  offers        Offer[]
+
+  @@index([organizationId])
+}
+
+/// tenant-owned (organizationId = produtor).
+model Offer {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  loteId             String?
+  lote               Lote?        @relation(fields: [loteId], references: [id])
+  crop               Crop
+  quantityKg         Int
+  expectedPriceCents Int?
+  status             OfferStatus  @default(ABERTA)
+  contractId         String?      @unique
+  contract           Contract?    @relation(fields: [contractId], references: [id])
+  createdAt          DateTime     @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([organizationId])
+}
+
+/// Contador global por ano para gerar números de contrato PLT-AAAA-NNNN.
+model ContractSequence {
+  year  Int @id
+  value Int @default(0)
+}

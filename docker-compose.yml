@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: plantor-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: plantor
+      POSTGRES_PASSWORD: plantor
+      POSTGRES_DB: plantor
+    ports:
+      - "5434:5432"
+    volumes:
+      - plantor-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plantor -d plantor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  plantor-pg-data:
+    name: plantor-pg-data
