@@ -1,15 +1,28 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth } from '@/auth';
+import { NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ["/login", "/invite"];
-
+/**
+ * Protege /dashboard/* — redireciona para /login se não autenticado.
+ */
 export default auth((req) => {
-  const isPublic = req.nextUrl.pathname === "/" || PUBLIC_PATHS.some((p) => req.nextUrl.pathname.startsWith(p));
-  if (!req.auth && !isPublic) {
-    return NextResponse.redirect(new URL("/login", req.nextUrl.origin));
+  const isLoggedIn = !!req.auth;
+  const path = req.nextUrl.pathname;
+  const isProtected =
+    path.startsWith('/dashboard') ||
+    path.startsWith('/contracts') ||
+    path.startsWith('/assistant') ||
+    path.startsWith('/campo') ||
+    path.startsWith('/producao') ||
+    path.startsWith('/mercado');
+
+  if (isProtected && !isLoggedIn) {
+    const loginUrl = new URL('/login', req.nextUrl.origin);
+    loginUrl.searchParams.set('callbackUrl', path);
+    return NextResponse.redirect(loginUrl);
   }
+  return NextResponse.next();
 });
 
 export const config = {
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ['/dashboard/:path*', '/contracts/:path*', '/assistant/:path*'],
 };

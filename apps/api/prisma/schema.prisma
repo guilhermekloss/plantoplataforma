@@ -1,261 +1,492 @@
+// schema.prisma — Plantor MVP (Fase 01)
+//
+// Campos de blockchain (blockchainTxHash, blockchainNetwork, blockchainContractAddr)
+// e de arquivo (fileUrl/fileHash) existem mas ficam NULL no MVP. O model
+// BlockchainRecord é criado mas não populado nesta fase.
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Connection pooling (Supabase pgBouncer / Railway) usado em runtime
+  url       = env("DATABASE_URL")
+  // Conexão direta usada por `prisma migrate` (Supabase)
+  directUrl = env("DIRECT_URL")
 }
 
-// ---------------------------------------------------------------------------
-// Enums
-// ---------------------------------------------------------------------------
-
-enum OrgType {
-  COOPERATIVE
-  TRADING
-  PRODUCER
-}
-
-enum UserRole {
-  ADMIN
-  OPERATOR
-  PRODUCER
-}
-
-enum Crop {
-  SOJA
-  MILHO
-  TRIGO
-}
-
-enum ContractStatus {
-  RASCUNHO
-  PENDENTE_ASSINATURA
-  ASSINADO
-  ENTREGA_PARCIAL
-  LIQUIDADO
-  CANCELADO
-}
-
-enum ContractEventType {
-  CRIADO
-  STATUS_ALTERADO
-  ENTREGA_REGISTRADA
-  LAUDO_ADICIONADO
-  PAGAMENTO_LIBERADO
-  ASSINADO
-}
-
-enum GradeClass {
-  TIPO_1
-  TIPO_2
-  TIPO_3
-  FORA_DE_TIPO
-}
-
-enum OfferStatus {
-  ABERTA
-  EM_NEGOCIACAO
-  CONVERTIDA
-  EXPIRADA
-  CANCELADA
-}
-
-enum LoteStatus {
-  PLANTADO
-  COLHIDO
-  BENEFICIAMENTO
-  DISPONIVEL
-  OFERTADO
-  VENDIDO
-}
-
-// ---------------------------------------------------------------------------
-// Models
-// ---------------------------------------------------------------------------
-
-/// NÃO filtrada pelo middleware de RLS: compradores precisam buscar/ler orgs de produtores.
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  type      OrgType
-  cnpj      String?  @unique
-  city      String?
-  state     String?
+  id                String   @id @default(cuid())
+  tenantId          String   @unique // mesmo que id para MVP
+  type              OrgType // cooperative | trading | producer
+  name              String
+  legalName         String?
+  cnpj              String?  @unique
+  cpf               String?  @unique // pessoa física (produtor)
+  stateRegistration String?
+  carNumber         String? // Cadastro Ambiental Rural
+  email             String   @unique
+  phone             String?
+  whatsappNumber    String?
+  address           Json? // { street, city, state, zip, country } — opcional no cadastro
+  bankAccount       Json? // { bank, agency, account, pixKey }
+
+  // Perfil da propriedade (produtor) — uso do solo
+  // { totalHa, arableHa, pastureHa, reserveHa }
+  farmProfile Json?
+
+  // Pecuária (fazenda mista) — rebanho recebido de brincos/balança (SISBOV)
+  // { herd: [{ category, headCount, breed, avgWeightKg, gmdKgDay }], pastureHa, source }
+  livestock Json?
+  plan              PlanType @default(trial)
+  planExpiresAt     DateTime?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users             User[]
+  contractsAsSeller Contract[]     @relation("seller")
+  contractsAsBuyer  Contract[]     @relation("buyer")
+  fieldReadings     FieldReading[]
+  offers            Offer[]        @relation("offerSeller")
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  email          String       @unique
+  passwordHash   String
+  name           String
+  cpf            String?
+  phone          String?
+  role           UserRole // admin | operator | producer | viewer
+  isActive       Boolean      @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  contractsCreated Contract[]
+  events           ContractEvent[]
+  signatures       ContractSignature[]
+}
+
+model Contract {
+  id             String         @id @default(cuid())
+  tenantId       String // organizationId do comprador (cooperativa/trading)
+  contractNumber String         @unique // auto-gerado: PLT-2025-0001
+  cprNumber      String? // número da CPR — Fase 02
+  cprType        CprType? // fisica | financeira — Fase 02
+  status         ContractStatus @default(rascunho)
+
+  // Partes
+  sellerId    String // producer organization
+  seller      Organization @relation("seller", fields: [sellerId], references: [id])
+  buyerId     String // cooperative or trading organization
+  buyer       Organization @relation("buyer", fields: [buyerId], references: [id])
+  createdById String
+  createdBy   User         @relation(fields: [createdById], references: [id])
+
+  // Objeto do contrato
+  grainType     GrainType
+  quantitySacks Decimal
+  sackWeightKg  Decimal       @default(60)
+  harvestYear   String // "2025/2026"
+  harvestPeriod HarvestPeriod
+
+  // Qualidade — padrões MAPA
+  grainGrade          GrainGrade?
+  maxMoisturePct      Decimal        @default(14.0)
+  maxImpurityPct      Decimal        @default(1.0)
+  minSpecificWeightGL Decimal?
+  maxDamagedPct       Decimal?
+  qualityAdjType      QualityAdjType
+
+  // Preço e Pagamento
+  priceType         PriceType
+  priceValueCents   BigInt? // centavos (BRL) ou millicents (USD)
+  priceCurrency     Currency       @default(BRL)
+  priceAdjIndex     PriceAdjIndex?
+  advancePct        Decimal? // % de adiantamento (barter)
+  barterDescription String?
+
+  // Entrega
+  warehouseName        String
+  warehouseAddress     Json
+  deliveryDeadline     DateTime
+  transportResponsible TransportResp
+
+  // Penalidades
+  penaltyPct       Decimal @default(10.0)
+  hasWashoutClause Boolean @default(true)
+  hasForceMajeure  Boolean @default(true)
+  arbitrationForum String?
+
+  // Assinatura / Blockchain (Fase 02 — null no MVP exceto contractHash)
+  contractHash           String? // SHA-256 do JSON canônico do contrato
+  blockchainTxHash       String? // Fase 02
+  blockchainNetwork      String? // Fase 02
+  blockchainContractAddr String? // Fase 02
+
+  // Dados agronômicos / IoT / clima recebidos do campo (snapshot na criação)
+  agronomicData      Json?
+
+  // Datas de transição
+  signedAt           DateTime?
+  executionStartedAt DateTime?
+  settledAt          DateTime?
+  cancelledAt        DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users         User[]
-  fieldReadings FieldReading[]
-  lotes         Lote[]
-  offers        Offer[]
+  signatures        ContractSignature[]
+  events            ContractEvent[]
+  deliveries        Delivery[]
+  blockchainRecords BlockchainRecord[]
+  offer             Offer?
 
-  contractsAsBuyer  Contract[] @relation("ContractBuyer")
-  contractsAsSeller Contract[] @relation("ContractSeller")
+  @@index([tenantId, status])
+  @@index([sellerId])
+  @@index([buyerId])
+  @@index([deliveryDeadline])
 }
 
-/// tenant-owned (organizationId) — filtrada cega pelo middleware de RLS.
-model User {
-  id             String   @id @default(cuid())
-  email          String   @unique
-  passwordHash   String
-  name           String
-  role           UserRole
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  deliveriesRegistered Delivery[] @relation("DeliveryRegisteredBy")
-  contractEvents       ContractEvent[]
-}
-
-/// Compartilhado entre dois tenants (comprador/vendedor) — acesso via contract-access.ts, não RLS cega.
-model Contract {
-  id                String         @id @default(cuid())
-  number            String         @unique
-  buyerOrgId        String
-  buyerOrg          Organization   @relation("ContractBuyer", fields: [buyerOrgId], references: [id])
-  sellerOrgId       String
-  sellerOrg         Organization   @relation("ContractSeller", fields: [sellerOrgId], references: [id])
-  crop              Crop
-  quantityKg        Int
-  pricePerSc60Cents Int
-  totalValueCents   Int
-  deliveryDeadline  DateTime
-  status            ContractStatus @default(RASCUNHO)
-  contractHash      String?
-  signedByBuyerAt   DateTime?
-  signedBySellerAt  DateTime?
-  agronomicData     Json?
-  deadlineWarningSentAt DateTime?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-
-  events     ContractEvent[]
-  deliveries Delivery[]
-  offer      Offer?
-
-  @@index([buyerOrgId])
-  @@index([sellerOrgId])
-}
-
-/// Acesso via contract-access.ts (segue o Contract pai).
-model ContractEvent {
-  id               String            @id @default(cuid())
-  contractId       String
-  contract         Contract          @relation(fields: [contractId], references: [id])
-  type             ContractEventType
-  payload          Json
-  actorUserId      String?
-  actorUser        User?             @relation(fields: [actorUserId], references: [id])
-  blockchainTxHash String?
-  createdAt        DateTime          @default(now())
-
-  @@index([contractId])
-}
-
-/// Acesso via contract-access.ts. Escrita só pelo comprador (regra aplicada no service).
-model Delivery {
-  id                 String         @id @default(cuid())
+model ContractSignature {
+  id                 String     @id @default(cuid())
   contractId         String
-  contract           Contract       @relation(fields: [contractId], references: [id])
-  quantityKg         Int
-  deliveredAt        DateTime
-  registeredByUserId String
-  registeredByUser   User           @relation("DeliveryRegisteredBy", fields: [registeredByUserId], references: [id])
-  paidAt             DateTime?
-  createdAt          DateTime       @default(now())
+  contract           Contract   @relation(fields: [contractId], references: [id])
+  userId             String
+  user               User       @relation(fields: [userId], references: [id])
+  signerRole         SignerRole // seller | buyer | witness
+  ipAddress          String
+  userAgent          String
+  documentHashBefore String // SHA-256 do JSON canônico antes da assinatura
+  documentHashAfter  String // SHA-256 do JSON canônico após registrar a assinatura
+  signedAt           DateTime   @default(now())
+}
+
+model ContractEvent {
+  id               String    @id @default(cuid())
+  contractId       String
+  contract         Contract  @relation(fields: [contractId], references: [id])
+  eventType        EventType
+  description      String
+  performedById    String?
+  performedBy      User?     @relation(fields: [performedById], references: [id])
+  blockchainTxHash String? // Fase 02
+  metadata         Json?
+  createdAt        DateTime  @default(now())
+
+  @@index([contractId, createdAt])
+}
+
+model Delivery {
+  id                     String   @id @default(cuid())
+  contractId             String
+  contract               Contract @relation(fields: [contractId], references: [id])
+  deliveryDate           DateTime
+  quantitySacks          Decimal
+  nfeKey                 String? // chave de acesso da NFe (44 dígitos)
+  warehouseReceiptNumber String?
+
+  // Qualidade medida na entrega
+  moisturePct        Decimal?
+  impurityPct        Decimal?
+  specificWeightGL   Decimal?
+  damagedPct         Decimal?
+  qualityAccepted    Boolean?
+  priceAdjustmentPct Decimal?
+
+  // Pagamento (liberação manual no MVP)
+  paymentAmountCents BigInt?
+  paymentStatus      PaymentStatus @default(pendente)
+  paymentReleasedAt  DateTime?
+  pixTxId            String? // Fase 02
+
+  blockchainTxHash String? // Fase 02
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   qualityReport QualityReport?
 
   @@index([contractId])
 }
 
-/// Laudo — acesso via Delivery -> Contract (contract-access.ts).
 model QualityReport {
-  id                 String     @id @default(cuid())
-  deliveryId         String     @unique
-  delivery           Delivery   @relation(fields: [deliveryId], references: [id])
-  moisturePct        Float
-  impuritiesPct      Float
-  brokenGrainsPct    Float
-  gradeClass         GradeClass
-  discountPct        Float
-  discountValueCents Int
-  finalValueCents    Int
-  createdAt          DateTime   @default(now())
+  id             String   @id @default(cuid())
+  deliveryId     String   @unique
+  delivery       Delivery @relation(fields: [deliveryId], references: [id])
+  reportNumber   String
+  laboratoryName String
+  reportDate     DateTime
+
+  // Análise (entrada manual no MVP)
+  moisturePct      Decimal
+  impurityPct      Decimal
+  specificWeightGL Decimal?
+  damagedPct       Decimal?
+  greenPct         Decimal?
+  brokenPct        Decimal?
+  ardidosPct       Decimal?
+  grade            GrainGrade
+
+  fileUrl   String? // Fase 02 (upload de PDF) — null no MVP
+  fileHash  String? // Fase 02 — null no MVP
+  createdAt DateTime @default(now())
 }
 
-/// tenant-owned (organizationId = produtor).
+model BlockchainRecord {
+  // Fase 02 — model criado, não populado no MVP
+  id          String               @id @default(cuid())
+  contractId  String
+  contract    Contract             @relation(fields: [contractId], references: [id])
+  recordType  BlockchainRecordType
+  txHash      String               @unique
+  blockNumber BigInt?
+  network     String
+  gasUsed     BigInt?
+  data        Json?
+  createdAt   DateTime             @default(now())
+
+  @@index([contractId])
+}
+
+// Telemetria de campo (IoT) consolidada por cultura/safra — dados RECEBIDOS de
+// colheitadeiras, tratores/plantadeiras, sensores de solo e estação meteorológica.
+// A plataforma apenas recebe e armazena (não opera as máquinas).
 model FieldReading {
-  id               String       @id @default(cuid())
-  organizationId   String
-  organization     Organization @relation(fields: [organizationId], references: [id])
-  crop             Crop
-  season           String
-  yieldScHa        Float?
-  harvestMoisture  Float?
-  ndvi             Float?
-  soilData         Json?
-  plantPopulation  Int?
-  rainfallMm       Float?
-  gddAccumulated   Float?
-  avgTempC         Float?
-  frostEvents      Int?
-  machineData      Json?
-  yieldMap         Json?
-  readingDate      DateTime
-  createdAt        DateTime     @default(now())
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
-  lotes Lote[]
+  grainType     GrainType
+  harvestYear   String // "2024/2025"
+  harvestPeriod HarvestPeriod
+  areaHa        Decimal // área monitorada (ha)
 
-  @@index([organizationId])
+  // Colheitadeira (monitor de produtividade)
+  yieldSacksPerHa       Decimal // produtividade (sc/ha)
+  harvestMoisturePct    Decimal? // umidade do grão na colheita (%)
+  harvestLossSacksPerHa Decimal? // perda estimada (sc/ha)
+
+  // Plantio (trator/plantadeira)
+  plantingDate         DateTime?
+  plantPopulationPerHa Int?
+
+  // Solo / vegetação
+  soilMoisturePct Decimal?
+  soilPh          Decimal?
+  ndviAvg         Decimal? // índice de vegetação médio do ciclo (0–1)
+
+  // Clima do ciclo (estação meteorológica)
+  rainfallMmCycle Decimal? // chuva acumulada no ciclo (mm)
+  gddCycle        Decimal? // graus-dia acumulados
+  avgTempC        Decimal? // temperatura média (°C)
+  frostEvents     Int? // nº de eventos de geada no ciclo
+
+  // Detalhamento (mapa de produtividade, máquinas, clima estendido)
+  machineData Json? // { harvester, tractor, fuelLPerHa, engineHours, speedKmh, headerWidthM }
+  yieldMap    Json? // { minSc, maxSc, avgSc, zones }
+  climateData Json? // métricas climáticas adicionais
+  source      String? // origem dos dados (ex.: "John Deere Operations Center", "INMET")
+
+  // Caderno de campo — operações recebidas de máquinas/apps de gestão
+  // [{ date, type: plantio|adubacao|pulverizacao|colheita|outro, product, dosePerHa, unit, costCentsPerHa, source }]
+  operations Json?
+
+  // Análise de solo (laboratório) — além do pH/umidade dos sensores
+  // { labName, sampleDate, pPpm, kCmolDm3, organicMatterPct, ctcCmolDm3, baseSaturationPct, recommendation }
+  soilAnalysis Json?
+
+  // Custo de produção consolidado (ERP/planilha do produtor ou benchmark regional)
+  // { totalCostCentsPerHa, source, breakdown: { seedsCents, fertilizerCents, chemicalsCents, operationsCents, otherCents } }
+  productionCost Json?
+
+  // Armazenagem pós-colheita (termometria do silo)
+  // { siloName, grainTempC, ambientTempC, aerationOn, capacitySacks, lastReadingAt }
+  storage Json?
+
+  // Ciclo de vida do lote pós-colheita
+  status            LotStatus @default(colhido)
+  storedMoisturePct Decimal? // umidade após secagem (% — apto se ≤ conservação)
+  availableSacks    Decimal? // sacas disponíveis para venda
+
+  collectedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  offers Offer[]
+
+  @@index([organizationId, grainType, harvestYear])
 }
 
-/// tenant-owned (organizationId = produtor). Sem fonte original — desenhado do zero no rebuild.
-model Lote {
-  id                  String       @id @default(cuid())
-  organizationId      String
-  organization        Organization @relation(fields: [organizationId], references: [id])
-  crop                Crop
-  season              String
-  areaHectares        Float
-  quantityKg          Int
-  status              LoteStatus   @default(PLANTADO)
-  beneficiamentoLocal String?
-  beneficiamentoData  DateTime?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-
-  fieldReadings FieldReading[]
-  offers        Offer[]
-
-  @@index([organizationId])
-}
-
-/// tenant-owned (organizationId = produtor).
+// Oferta de venda criada pelo PRODUTOR a partir de um lote colhido e apto.
+// A cooperativa/trading aceita a oferta e ela vira um Contract.
 model Offer {
-  id                 String       @id @default(cuid())
-  organizationId     String
-  organization       Organization @relation(fields: [organizationId], references: [id])
-  loteId             String?
-  lote               Lote?        @relation(fields: [loteId], references: [id])
-  crop               Crop
-  quantityKg         Int
-  expectedPriceCents Int?
-  status             OfferStatus  @default(ABERTA)
-  contractId         String?      @unique
-  contract           Contract?    @relation(fields: [contractId], references: [id])
-  createdAt          DateTime     @default(now())
-  updatedAt           DateTime    @updatedAt
+  id             String       @id @default(cuid())
+  fieldReadingId String
+  fieldReading   FieldReading @relation(fields: [fieldReadingId], references: [id])
+  sellerId       String // organização do produtor
+  seller         Organization @relation("offerSeller", fields: [sellerId], references: [id])
 
-  @@index([organizationId])
+  grainType        GrainType
+  harvestYear      String
+  quantitySacks    Decimal
+  askingPriceCents BigInt? // preço pedido (centavos/saca) — opcional
+  status           OfferStatus @default(disponivel)
+  notes            String?
+
+  contractId String?   @unique // preenchido quando vira contrato
+  contract   Contract? @relation(fields: [contractId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([sellerId])
 }
 
-/// Contador global por ano para gerar números de contrato PLT-AAAA-NNNN.
-model ContractSequence {
-  year  Int @id
-  value Int @default(0)
+// Enums
+enum OrgType {
+  cooperative
+  trading
+  producer
+}
+
+enum UserRole {
+  admin
+  operator
+  producer
+  viewer
+}
+
+enum ContractStatus {
+  rascunho
+  pendente_assinatura_comprador
+  pendente_assinatura_produtor
+  assinado
+  em_execucao
+  entregue_parcial
+  disputado
+  liquidado
+  cancelado
+}
+
+enum CprType {
+  fisica
+  financeira
+}
+
+enum GrainType {
+  soja
+  milho
+  cafe
+  trigo
+  algodao
+  sorgo
+  feijao
+}
+
+enum HarvestPeriod {
+  primeira
+  segunda
+  unica
+}
+
+enum GrainGrade {
+  T1
+  T2
+  T3
+  fora_padrao
+}
+
+enum QualityAdjType {
+  proportional
+  fixed_pct
+  rejection
+  none
+}
+
+enum PriceType {
+  fixo
+  media_mercado
+  indexado_b3
+  indexado_cbot
+}
+
+enum Currency {
+  BRL
+  USD
+}
+
+enum PriceAdjIndex {
+  IPCA
+  IGPM
+  none
+}
+
+enum TransportResp {
+  seller
+  buyer
+}
+
+enum SignerRole {
+  seller
+  buyer
+  witness
+}
+
+enum EventType {
+  criado
+  assinado_comprador
+  assinado_produtor
+  em_execucao
+  entregue
+  entregue_parcial
+  laudo_anexado
+  pagamento_liberado
+  pagamento_pago
+  disputado
+  cancelado
+  hash_registrado_onchain
+}
+
+enum PaymentStatus {
+  pendente
+  liberado
+  pago
+}
+
+enum BlockchainRecordType {
+  contract_registered
+  status_changed
+  delivery_confirmed
+  payment_released
+  dispute_raised
+}
+
+enum PlanType {
+  trial
+  starter
+  pro
+  enterprise
+}
+
+// Ciclo de vida do lote: plantado → colhido → beneficiamento → disponível → ofertado → vendido
+enum LotStatus {
+  em_desenvolvimento
+  colhido
+  em_beneficiamento
+  disponivel
+  ofertado
+  vendido
+}
+
+enum OfferStatus {
+  disponivel
+  em_negociacao
+  contratada
+  cancelada
 }

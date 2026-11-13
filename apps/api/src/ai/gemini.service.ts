@@ -1,66 +1,49 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import type { GoogleGenAI } from "@google/genai";
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { GoogleGenAI } from '@google/genai';
+import { Env } from '../config/env.schema';
 
-const MODEL = "gemini-2.5-flash";
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 /**
- * Provedor isolado atrás de complete() — AiService não sabe que é Gemini
- * (usuário escolheu Gemini, não Claude/OpenAI). Trocar de provedor no
- * futuro significa só trocar esta classe.
+ * Wrapper fino sobre o SDK oficial do Google Gemini (@google/genai).
+ * Modelo padrão: gemini-2.5-flash (rápido e barato — bom para o produtor no celular).
  *
- * @google/genai@0.15 é publicado com "type":"module" no package.json raiz,
- * mas dist/node/index.js (a entrada resolvida por `require`) ainda contém
- * `require()` internamente — um bug de empacotamento que quebra
- * `require("@google/genai")` a partir do nosso runtime CommonJS
- * (`ReferenceError: require is not defined in ES module scope`).
- * Contornado com `import()` dinâmico, que segue a condição "import" do
- * pacote e carrega dist/node/index.mjs (ESM de verdade) — só que o TS,
- * ao compilar para `module: commonjs`, reescreve `import()` estático em
- * `require()` (mesmo bug de novo). Por isso o import dinâmico é escondido
- * do compilador via `new Function(...)`, forçando um `import()` nativo em
- * runtime que o Node resolve corretamente pela condição "import".
+ * Sem GEMINI_API_KEY, fica desabilitado e o AiService usa fallback determinístico
+ * — assim o produto funciona em dev/demo sem a chave.
  */
-const importGoogleGenAI = new Function("return import('@google/genai')") as () => Promise<typeof import("@google/genai")>;
-
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  private readonly apiKey?: string;
-  private clientPromise: Promise<GoogleGenAI> | null = null;
+  private readonly client: GoogleGenAI | null;
+  private readonly model: string;
 
-  constructor(private readonly config: ConfigService) {
-    this.apiKey = this.config.get<string>("GEMINI_API_KEY") || undefined;
+  constructor(config: ConfigService<Env, true>) {
+    const apiKey = config.get('GEMINI_API_KEY', { infer: true });
+    this.model = config.get('GEMINI_MODEL', { infer: true });
+    this.client = apiKey ? new GoogleGenAI({ apiKey }) : null;
   }
 
-  get isAvailable(): boolean {
-    return Boolean(this.apiKey);
+  get enabled(): boolean {
+    return this.client !== null;
   }
 
-  private getClient(): Promise<GoogleGenAI> | null {
-    if (!this.apiKey) {
-      return null;
+  async complete(system: string, messages: ChatMessage[], maxTokens = 1500): Promise<string> {
+    if (!this.client) {
+      throw new Error('IA não configurada (GEMINI_API_KEY ausente).');
     }
-    if (!this.clientPromise) {
-      this.clientPromise = importGoogleGenAI().then(
-        ({ GoogleGenAI: GoogleGenAICtor }) => new GoogleGenAICtor({ apiKey: this.apiKey! }),
-      );
-    }
-    return this.clientPromise;
-  }
-
-  async complete(prompt: string): Promise<string | null> {
-    const clientPromise = this.getClient();
-    if (!clientPromise) {
-      return null;
-    }
-    try {
-      const client = await clientPromise;
-      const response = await client.models.generateContent({ model: MODEL, contents: prompt });
-      return response.text ?? null;
-    } catch (error) {
-      this.logger.error("Falha ao chamar Gemini", error as Error);
-      return null;
-    }
+    const response = await this.client.models.generateContent({
+      model: this.model,
+      config: { systemInstruction: system, maxOutputTokens: maxTokens },
+      // Gemini usa os papéis "user" e "model" (não "assistant").
+      contents: messages.map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      })),
+    });
+    return (response.text ?? '').trim();
   }
 }

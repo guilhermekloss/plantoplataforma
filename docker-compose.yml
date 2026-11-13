@@ -1,3 +1,9 @@
+# Postgres local para desenvolvimento e testes de integração.
+# Uso:
+#   docker compose up -d
+#   (apps/api/.env já aponta para localhost:5434)
+#
+# Em produção usa-se Supabase — ver .env.example.
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,15 +14,14 @@ services:
       POSTGRES_PASSWORD: plantor
       POSTGRES_DB: plantor
     ports:
-      - "5434:5432"
+      - '5434:5432'
     volumes:
-      - plantor-pg-data:/var/lib/postgresql/data
+      - plantor_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U plantor -d plantor"]
+      test: ['CMD-SHELL', 'pg_isready -U plantor']
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  plantor-pg-data:
-    name: plantor-pg-data
+  plantor_pgdata:

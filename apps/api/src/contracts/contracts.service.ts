@@ -1,198 +1,449 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import type { ContractStatus as PrismaContractStatus } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
-import { EmailService } from "../email/email.service";
-import { FieldDataService } from "../field-data/field-data.service";
-import { assertContractAccess, contractAccessWhere } from "../common/contract-access";
-import { assertTransition, hashContract, kgToSacas, type ContractStatus } from "@plantor/shared";
-// @plantor/shared usa uma union de string literais própria (não depende de
-// @prisma/client); os valores são idênticos aos do enum gerado pelo Prisma,
-// então convertemos na borda ao chamar o Prisma Client.
-import type { CreateContractDto } from "./dto/contract.schemas";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
+import type { Contract, Organization } from '@prisma/client';
+import {
+  estimateGrossValueCents,
+  estimateTotalSacks,
+  formatContractNumber,
+  indicativePriceCents,
+} from '@plantor/shared';
+import type { FieldReading, GrainType } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { Env } from '../config/env.schema';
+import { EmailService } from '../email/email.service';
+import {
+  contractActiveEmail,
+  contractAwaitingSignatureEmail,
+  contractDisputeEmail,
+  contractSignedByProducerEmail,
+} from '../email/templates';
+import { canonicalSha256 } from '../crypto/canonical-hash';
+import type { AccessTokenPayload } from '../auth/token.service';
+import { assertContractAccess, contractAccessWhere } from '../prisma/contract-access';
+import { buildContractDocument } from './contract-document';
+import type { CreateContractDto, ListContractsDto, UpdateContractDto } from './contracts.dto';
+
+type Ctx = { orgId: string; tenantId: string; userId: string; role: string };
+
+function toCtx(user: AccessTokenPayload): Ctx {
+  return { orgId: user.orgId, tenantId: user.tenantId, userId: user.sub, role: user.role };
+}
+
+const contractInclude = {
+  seller: { select: { id: true, name: true, cpf: true, email: true, address: true } },
+  buyer: { select: { id: true, name: true, legalName: true, email: true } },
+  signatures: true,
+} satisfies Prisma.ContractInclude;
 
 @Injectable()
 export class ContractsService {
+  private readonly logger = new Logger(ContractsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
-    private readonly fieldData: FieldDataService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
-  async create(dto: CreateContractDto, buyerOrgId: string, actorUserId: string) {
-    const totalValueCents = Math.round((dto.quantityKg / 60) * dto.pricePerSc60Cents);
+  async create(user: AccessTokenPayload, dto: CreateContractDto): Promise<Contract> {
+    const ctx = toCtx(user);
 
-    // Snapshot da última leitura de campo do produtor pra essa cultura —
-    // anexado ao contrato no momento da criação (dado já existe, não pede
-    // pro produtor preencher de novo).
-    const latestReading = await this.fieldData.latestReadingFor(dto.sellerOrgId, dto.crop);
-    const agronomicData = latestReading
-      ? {
-          fieldReadingId: latestReading.id,
-          season: latestReading.season,
-          yieldScHa: latestReading.yieldScHa,
-          harvestMoisture: latestReading.harvestMoisture,
-          ndvi: latestReading.ndvi,
-          rainfallMm: latestReading.rainfallMm,
-          readingDate: latestReading.readingDate,
-        }
-      : null;
+    const [buyer, seller] = await Promise.all([
+      this.prisma.organization.findUnique({ where: { id: ctx.orgId } }),
+      this.prisma.organization.findUnique({ where: { id: dto.sellerId } }),
+    ]);
+    if (!buyer || (buyer.type !== 'cooperative' && buyer.type !== 'trading')) {
+      throw new ForbiddenException('Apenas cooperativa ou trading pode criar contratos.');
+    }
+    if (!seller || seller.type !== 'producer') {
+      throw new BadRequestException('O vendedor deve ser uma organização do tipo produtor.');
+    }
 
-    const contract = await this.prisma.$transaction(async (tx) => {
-      const year = new Date().getFullYear();
-      const sequence = await tx.contractSequence.upsert({
-        where: { year },
-        create: { year, value: 1 },
-        update: { value: { increment: 1 } },
-      });
-      const number = `PLT-${year}-${String(sequence.value).padStart(4, "0")}`;
+    // Anexa um snapshot dos dados de campo (IoT) mais recentes do produtor para
+    // esta cultura — assim o contrato carrega contexto agronômico/climático.
+    const agronomicData = await this.buildAgronomicSnapshot(dto.sellerId, dto.grainType);
 
-      const created = await tx.contract.create({
+    // contractNumber é @unique e gerado por sequência lida dentro da transação;
+    // criações concorrentes podem colidir (P2002) — nesse caso basta tentar de novo.
+    return this.retryOnUniqueCollision(() => this.createWithNumber(ctx, dto, agronomicData));
+  }
+
+  private async createWithNumber(
+    ctx: Ctx,
+    dto: CreateContractDto,
+    agronomicData: Prisma.InputJsonValue | null,
+  ): Promise<Contract> {
+    return this.prisma.$transaction(async (tx) => {
+      const contractNumber = await this.nextContractNumber(tx);
+      const contract = await tx.contract.create({
         data: {
-          number,
-          buyerOrgId,
-          sellerOrgId: dto.sellerOrgId,
-          crop: dto.crop,
-          quantityKg: dto.quantityKg,
-          pricePerSc60Cents: dto.pricePerSc60Cents,
-          totalValueCents,
+          tenantId: ctx.orgId,
+          contractNumber,
+          status: 'rascunho',
+          sellerId: dto.sellerId,
+          buyerId: ctx.orgId,
+          createdById: ctx.userId,
+          grainType: dto.grainType,
+          quantitySacks: dto.quantitySacks,
+          sackWeightKg: dto.sackWeightKg,
+          harvestYear: dto.harvestYear,
+          harvestPeriod: dto.harvestPeriod,
+          maxMoisturePct: dto.maxMoisturePct,
+          maxImpurityPct: dto.maxImpurityPct,
+          minSpecificWeightGL: dto.minSpecificWeightGL,
+          maxDamagedPct: dto.maxDamagedPct,
+          qualityAdjType: dto.qualityAdjType,
+          priceType: dto.priceType,
+          priceValueCents: dto.priceValueCents != null ? BigInt(dto.priceValueCents) : null,
+          priceCurrency: dto.priceCurrency,
+          advancePct: dto.advancePct,
+          barterDescription: dto.barterDescription,
+          warehouseName: dto.warehouseName,
+          warehouseAddress: dto.warehouseAddress as Prisma.InputJsonValue,
           deliveryDeadline: dto.deliveryDeadline,
-          status: "PENDENTE_ASSINATURA",
+          transportResponsible: dto.transportResponsible,
+          penaltyPct: dto.penaltyPct,
+          hasWashoutClause: dto.hasWashoutClause,
+          hasForceMajeure: dto.hasForceMajeure,
+          arbitrationForum: dto.arbitrationForum,
           agronomicData: agronomicData ?? undefined,
         },
       });
-
       await tx.contractEvent.create({
         data: {
-          contractId: created.id,
-          type: "CRIADO",
-          actorUserId,
-          payload: { number, crop: dto.crop, quantityKg: dto.quantityKg, totalValueCents },
+          contractId: contract.id,
+          eventType: 'criado',
+          description: `Contrato ${contractNumber} criado como rascunho.`,
+          performedById: ctx.userId,
         },
       });
-
-      return created;
+      return contract;
     });
+  }
 
-    await this.notifySellerOfNewContract(contract.sellerOrgId, contract.number, contract.id, contract.quantityKg);
+  async findAll(user: AccessTokenPayload, filters: ListContractsDto) {
+    const ctx = toCtx(user);
+    return this.prisma.contract.findMany({
+      where: {
+        AND: [
+          contractAccessWhere(ctx),
+          filters.status ? { status: filters.status } : {},
+          filters.grainType ? { grainType: filters.grainType } : {},
+          filters.sellerId ? { sellerId: filters.sellerId } : {},
+        ],
+      },
+      include: contractInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findOne(user: AccessTokenPayload, id: string) {
+    const ctx = toCtx(user);
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: contractInclude,
+    });
+    if (!contract) throw new NotFoundException('Contrato não encontrado.');
+    assertContractAccess(ctx, contract);
     return contract;
   }
 
-  async findAllForTenant(tenantId: string, status?: ContractStatus) {
-    return this.prisma.contract.findMany({
-      where: { ...contractAccessWhere(tenantId), ...(status ? { status: status as PrismaContractStatus } : {}) },
-      include: { buyerOrg: true, sellerOrg: true },
-      orderBy: { createdAt: "desc" },
-    });
-  }
-
-  async findOne(id: string, tenantId: string) {
-    await assertContractAccess(this.prisma, id, tenantId);
-    return this.prisma.contract.findUniqueOrThrow({
+  async update(user: AccessTokenPayload, id: string, dto: UpdateContractDto): Promise<Contract> {
+    const ctx = toCtx(user);
+    const contract = await this.loadOwnedByBuyer(ctx, id);
+    if (contract.status !== 'rascunho') {
+      throw new BadRequestException('Apenas rascunhos podem ser editados.');
+    }
+    return this.prisma.contract.update({
       where: { id },
-      include: {
-        buyerOrg: true,
-        sellerOrg: true,
-        events: { orderBy: { createdAt: "desc" }, include: { actorUser: true } },
-        deliveries: { include: { qualityReport: true } },
+      data: {
+        ...dto,
+        warehouseAddress: dto.warehouseAddress
+          ? (dto.warehouseAddress as Prisma.InputJsonValue)
+          : undefined,
+        priceValueCents:
+          dto.priceValueCents != null ? BigInt(dto.priceValueCents) : undefined,
       },
     });
   }
 
-  async sign(id: string, tenantId: string, actorUserId: string) {
-    const contract = await assertContractAccess(this.prisma, id, tenantId);
+  async submit(user: AccessTokenPayload, id: string): Promise<Contract> {
+    const ctx = toCtx(user);
+    const contract = await this.loadOwnedByBuyer(ctx, id);
+    if (contract.status !== 'rascunho') {
+      throw new BadRequestException('O contrato já foi enviado para assinatura.');
+    }
+    return this.prisma.contract.update({
+      where: { id },
+      data: { status: 'pendente_assinatura_comprador' },
+    });
+  }
 
-    if (contract.status !== "PENDENTE_ASSINATURA") {
-      throw new BadRequestException(`Contrato não está pendente de assinatura (status atual: ${contract.status})`);
+  async sign(user: AccessTokenPayload, id: string, ipAddress: string, userAgent: string) {
+    const ctx = toCtx(user);
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: { signatures: true, buyer: true, seller: true },
+    });
+    if (!contract) throw new NotFoundException('Contrato não encontrado.');
+    assertContractAccess(ctx, contract);
+
+    const signerRole: 'buyer' | 'seller' = contract.buyerId === ctx.orgId ? 'buyer' : 'seller';
+
+    if (signerRole === 'buyer' && contract.status !== 'pendente_assinatura_comprador') {
+      throw new BadRequestException('Não é a vez do comprador assinar.');
+    }
+    if (signerRole === 'seller' && contract.status !== 'pendente_assinatura_produtor') {
+      throw new BadRequestException('Não é a vez do produtor assinar.');
+    }
+    if (contract.signatures.some((s) => s.signerRole === signerRole)) {
+      throw new BadRequestException('Esta parte já assinou o contrato.');
     }
 
-    const isBuyer = tenantId === contract.buyerOrgId;
-    const alreadySigned = isBuyer ? contract.signedByBuyerAt : contract.signedBySellerAt;
-    if (alreadySigned) {
-      throw new BadRequestException("Sua organização já assinou este contrato");
-    }
-
-    const now = new Date();
-    const signedByBuyerAt = isBuyer ? now : contract.signedByBuyerAt;
-    const signedBySellerAt = isBuyer ? contract.signedBySellerAt : now;
-    const bothSigned = Boolean(signedByBuyerAt && signedBySellerAt);
+    const documentHashBefore = canonicalSha256(
+      buildContractDocument(contract, contract.signatures),
+    );
+    const signedAt = new Date();
+    const documentHashAfter = canonicalSha256(
+      buildContractDocument(contract, [
+        ...contract.signatures,
+        { signerRole, userId: ctx.userId, signedAt, documentHashBefore },
+      ]),
+    );
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      let contractHash: string | undefined;
-      if (bothSigned) {
-        assertTransition(contract.status, "ASSINADO");
-        contractHash = hashContract({
-          number: contract.number,
-          buyerOrgId: contract.buyerOrgId,
-          sellerOrgId: contract.sellerOrgId,
-          crop: contract.crop,
-          quantityKg: contract.quantityKg,
-          pricePerSc60Cents: contract.pricePerSc60Cents,
-          totalValueCents: contract.totalValueCents,
-          deliveryDeadline: contract.deliveryDeadline,
-          signedByBuyerAt,
-          signedBySellerAt,
-        });
-      }
-
-      const result = await tx.contract.update({
-        where: { id },
+      await tx.contractSignature.create({
         data: {
-          signedByBuyerAt,
-          signedBySellerAt,
-          ...(bothSigned ? { status: "ASSINADO", contractHash } : {}),
+          contractId: id,
+          userId: ctx.userId,
+          signerRole,
+          ipAddress,
+          userAgent,
+          documentHashBefore,
+          documentHashAfter,
+          signedAt,
         },
       });
-
       await tx.contractEvent.create({
         data: {
           contractId: id,
-          type: bothSigned ? "ASSINADO" : "STATUS_ALTERADO",
-          actorUserId,
-          payload: bothSigned ? { contractHash } : { signedBy: isBuyer ? "buyer" : "seller" },
+          eventType: signerRole === 'buyer' ? 'assinado_comprador' : 'assinado_produtor',
+          description:
+            signerRole === 'buyer'
+              ? 'Contrato assinado pelo comprador.'
+              : 'Contrato assinado pelo produtor.',
+          performedById: ctx.userId,
+          metadata: { documentHashAfter },
         },
       });
 
-      return result;
+      if (signerRole === 'buyer') {
+        return tx.contract.update({
+          where: { id },
+          data: { status: 'pendente_assinatura_produtor', contractHash: documentHashAfter },
+        });
+      }
+
+      // Produtor assinou → ambas as partes assinaram → assinado → em_execução.
+      await tx.contract.update({
+        where: { id },
+        data: { status: 'assinado', signedAt, contractHash: documentHashAfter },
+      });
+      await tx.contractEvent.create({
+        data: {
+          contractId: id,
+          eventType: 'em_execucao',
+          description: 'Contrato ativo — entregas podem ser registradas.',
+          performedById: ctx.userId,
+        },
+      });
+      return tx.contract.update({
+        where: { id },
+        data: { status: 'em_execucao', executionStartedAt: signedAt },
+      });
     });
 
-    if (bothSigned) {
-      await this.notifyBothPartiesSigned(contract.buyerOrgId, contract.sellerOrgId, contract.number, id);
-    }
-
+    await this.notifyAfterSignature(signerRole, contract.buyer, contract.seller, updated.contractNumber);
     return updated;
   }
 
-  private async notifySellerOfNewContract(
-    sellerOrgId: string,
-    contractNumber: string,
-    contractId: string,
-    quantityKg: number,
-  ) {
-    const users = await this.prisma.user.findMany({ where: { organizationId: sellerOrgId } });
-    const sacas = kgToSacas(quantityKg).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
-    await Promise.all(
-      users.map((u) =>
-        this.email.send({
-          to: u.email,
-          subject: `Novo contrato ${contractNumber} para assinatura`,
-          html: `<p>Você recebeu o contrato <strong>${contractNumber}</strong> (${sacas} sc) para revisar e assinar na Plantor. Contrato: ${contractId}.</p>`,
-        }),
-      ),
-    );
+  async dispute(user: AccessTokenPayload, id: string, reason: string): Promise<Contract> {
+    const ctx = toCtx(user);
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: { buyer: true, seller: true },
+    });
+    if (!contract) throw new NotFoundException('Contrato não encontrado.');
+    assertContractAccess(ctx, contract);
+    if (!['assinado', 'em_execucao', 'entregue_parcial'].includes(contract.status)) {
+      throw new BadRequestException('Só é possível abrir disputa em contratos em execução.');
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.contractEvent.create({
+        data: {
+          contractId: id,
+          eventType: 'disputado',
+          description: `Disputa aberta: ${reason}`,
+          performedById: ctx.userId,
+        },
+      });
+      return tx.contract.update({ where: { id }, data: { status: 'disputado' } });
+    });
+
+    const { subject, html } = contractDisputeEmail({ contractNumber: contract.contractNumber, reason });
+    await this.safeSend([contract.buyer.email, contract.seller.email], subject, html);
+    return updated;
   }
 
-  private async notifyBothPartiesSigned(buyerOrgId: string, sellerOrgId: string, contractNumber: string, contractId: string) {
-    const users = await this.prisma.user.findMany({
-      where: { organizationId: { in: [buyerOrgId, sellerOrgId] } },
+  async cancel(user: AccessTokenPayload, id: string, reason: string): Promise<Contract> {
+    const ctx = toCtx(user);
+    const contract = await this.loadOwnedByBuyer(ctx, id);
+    if (['liquidado', 'cancelado'].includes(contract.status)) {
+      throw new BadRequestException('Contrato já encerrado.');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.contractEvent.create({
+        data: {
+          contractId: id,
+          eventType: 'cancelado',
+          description: `Contrato cancelado: ${reason}`,
+          performedById: ctx.userId,
+        },
+      });
+      return tx.contract.update({
+        where: { id },
+        data: { status: 'cancelado', cancelledAt: new Date() },
+      });
     });
-    await Promise.all(
-      users.map((u) =>
-        this.email.send({
-          to: u.email,
-          subject: `Contrato ${contractNumber} assinado por ambas as partes`,
-          html: `<p>O contrato <strong>${contractNumber}</strong> foi assinado por comprador e vendedor. Contrato: ${contractId}.</p>`,
-        }),
-      ),
-    );
+  }
+
+  async events(user: AccessTokenPayload, id: string) {
+    const ctx = toCtx(user);
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      select: { id: true, buyerId: true, sellerId: true },
+    });
+    if (!contract) throw new NotFoundException('Contrato não encontrado.');
+    assertContractAccess(ctx, contract);
+    return this.prisma.contractEvent.findMany({
+      where: { contractId: id },
+      include: { performedBy: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // ---- helpers ----
+
+  private async retryOnUniqueCollision<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await fn();
+      } catch (err) {
+        const isUniqueCollision =
+          err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+        if (!isUniqueCollision || attempt >= attempts) throw err;
+        this.logger.warn(`Colisão de contractNumber (tentativa ${attempt}); tentando novamente.`);
+      }
+    }
+  }
+
+  private async loadOwnedByBuyer(ctx: Ctx, id: string): Promise<Contract> {
+    const contract = await this.prisma.contract.findUnique({ where: { id } });
+    if (!contract) throw new NotFoundException('Contrato não encontrado.');
+    assertContractAccess(ctx, contract);
+    if (contract.buyerId !== ctx.orgId) {
+      throw new ForbiddenException('Apenas o comprador pode realizar esta ação.');
+    }
+    return contract;
+  }
+
+  /** Snapshot dos dados de campo (IoT) mais recentes do produtor para a cultura. */
+  private async buildAgronomicSnapshot(
+    sellerId: string,
+    grainType: GrainType,
+  ): Promise<Prisma.InputJsonValue | null> {
+    const reading: FieldReading | null = await this.prisma.fieldReading.findFirst({
+      where: { organizationId: sellerId, grainType },
+      orderBy: { collectedAt: 'desc' },
+    });
+    if (!reading) return null;
+
+    const yieldSc = Number(reading.yieldSacksPerHa);
+    const areaHa = Number(reading.areaHa);
+    const priceCents = indicativePriceCents(grainType);
+
+    return {
+      source: reading.source ?? 'Agregado IoT',
+      collectedAt: reading.collectedAt.toISOString(),
+      expectedYieldSacksPerHa: yieldSc,
+      areaHa,
+      harvestMoisturePct: reading.harvestMoisturePct != null ? Number(reading.harvestMoisturePct) : null,
+      ndviAvg: reading.ndviAvg != null ? Number(reading.ndviAvg) : null,
+      soilPh: reading.soilPh != null ? Number(reading.soilPh) : null,
+      climate: {
+        rainfallMmCycle: reading.rainfallMmCycle != null ? Number(reading.rainfallMmCycle) : null,
+        gddCycle: reading.gddCycle != null ? Number(reading.gddCycle) : null,
+        avgTempC: reading.avgTempC != null ? Number(reading.avgTempC) : null,
+        frostEvents: reading.frostEvents,
+      },
+      reference: {
+        pricePerSackCents: priceCents,
+        estimatedTotalSacks: estimateTotalSacks(yieldSc, areaHa),
+        estimatedGrossValueCents: priceCents != null ? estimateGrossValueCents(yieldSc, areaHa, priceCents) : null,
+        note: 'Preço de referência indicativo — não é cotação em tempo real.',
+      },
+      machineData: reading.machineData ?? undefined,
+    } as Prisma.InputJsonValue;
+  }
+
+  private async nextContractNumber(tx: Prisma.TransactionClient): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `PLT-${year}-`;
+    // Range em vez de LIKE: aproveita o índice único de contractNumber.
+    const last = await tx.contract.findFirst({
+      where: { contractNumber: { gte: prefix, lt: `PLT-${year + 1}-` } },
+      orderBy: { contractNumber: 'desc' },
+      select: { contractNumber: true },
+    });
+    const seq = last ? Number(last.contractNumber.slice(prefix.length)) + 1 : 1;
+    return formatContractNumber(year, seq);
+  }
+
+  private async notifyAfterSignature(
+    signerRole: 'buyer' | 'seller',
+    buyer: Organization,
+    seller: Organization,
+    contractNumber: string,
+  ): Promise<void> {
+    if (signerRole === 'buyer') {
+      const { subject, html } = contractAwaitingSignatureEmail({
+        contractNumber,
+        url: `${this.config.get('APP_WEB_URL', { infer: true })}/contracts`,
+      });
+      await this.safeSend([seller.email], subject, html);
+      return;
+    }
+    // Produtor assinou → avisa cooperativa + email "ativo" para ambos.
+    const signed = contractSignedByProducerEmail({ contractNumber });
+    await this.safeSend([buyer.email], signed.subject, signed.html);
+    const active = contractActiveEmail({ contractNumber });
+    await this.safeSend([buyer.email, seller.email], active.subject, active.html);
+  }
+
+  private async safeSend(to: string[], subject: string, html: string): Promise<void> {
+    try {
+      await Promise.all(to.map((address) => this.email.send({ to: address, subject, html })));
+    } catch (err) {
+      // Falha de email não deve quebrar a transição de estado já persistida.
+      this.logger.error('Falha ao enviar notificação de contrato', err instanceof Error ? err.message : '');
+    }
   }
 }

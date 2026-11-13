@@ -1,7 +1,7 @@
-import { Module } from "@nestjs/common";
-import { OffersController } from "./offers.controller";
-import { OffersService } from "./offers.service";
-import { ContractsModule } from "../contracts/contracts.module";
+import { Module } from '@nestjs/common';
+import { ContractsModule } from '../contracts/contracts.module';
+import { OffersController } from './offers.controller';
+import { OffersService } from './offers.service';
 
 @Module({
   imports: [ContractsModule],

@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plantor — Seus dados. Sua venda. Sem surpresa.</title>
+<meta name="description" content="A Plantor coleta tudo que sua fazenda gera de dado — tratores, colheitadeira, drones, silo, satélite, clima — consolida numa plataforma só e usa IA pra apoiar a melhor decisão de venda. A venda pra cooperativa vira um contrato claro, assinado em minutos. Piloto safra 2026/27 com vagas para produtores." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 132'%3E%3Cg fill='%23DE5B2B'%3E%3Cpath d='M52 10 L78 24 L44 42 L44 92 L24 80 L24 30 Z'/%3E%3Cpath d='M68 122 L42 108 L76 90 L76 40 L96 52 L96 102 Z'/%3E%3Ccircle cx='60' cy='66' r='11'/%3E%3C/g%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  /* Tokens da marca Plantor (mesmos do app: terracota + neutros quentes) */
+  :root {
+    --primary: #de5b2b;
+    --primary-strong: #c44d20;
+    --primary-soft: rgba(222, 91, 43, 0.1);
+    --bg: #f4f2ed;
+    --card: #ffffff;
+    --ink: #292524;
+    --muted: #78716c;
+    --line: #e7e2da;
+    --ok: #059669;
+    --ok-soft: rgba(5, 150, 105, 0.1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --primary: #e46a3c;
+      --primary-strong: #ef7a4c;
+      --primary-soft: rgba(228, 106, 60, 0.14);
+      --bg: #1a1614;
+      --card: #221d1a;
+      --ink: #f0ece8;
+      --muted: #a8a29e;
+      --line: #37302b;
+      --ok: #34d399;
+      --ok-soft: rgba(52, 211, 153, 0.12);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  .container { max-width: 72rem; margin: 0 auto; padding: 0 1.25rem; }
+  a { color: inherit; text-decoration: none; }
+
+  @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  .fade-up { animation: fade-up 0.5s ease-out both; }
+  .hero-mock.fade-up { animation-delay: 0.15s; }
+  @media (prefers-reduced-motion: reduce) { .fade-up { animation: none; } }
+
+  header {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .header-row { display: flex; align-items: center; justify-content: space-between; height: 3.5rem; }
+  .brand { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 1.1rem; }
+  .brand svg { width: 1.5rem; height: 1.65rem; fill: var(--primary); }
+  .header-nav { display: flex; align-items: center; gap: 1.25rem; font-size: 0.9rem; color: var(--muted); }
+  .header-nav a:hover { color: var(--primary); }
+  .header-nav .btn { color: #fff8f5; }
+  @media (max-width: 640px) { .header-nav .nav-link { display: none; } }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    border-radius: 0.5rem; padding: 0.6rem 1.15rem;
+    font-size: 0.925rem; font-weight: 500;
+    border: 1px solid transparent; transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .btn-primary { background: var(--primary); color: #fff8f5; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-outline { border-color: var(--line); background: var(--card); }
+  .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-lg { padding: 0.8rem 1.6rem; font-size: 1rem; }
+
+  /* Hero em duas colunas: conversa à esquerda, produto materializado à direita */
+  .hero { display: grid; gap: 2.5rem; padding: 4.5rem 0 3.5rem; align-items: center; }
+  .hero > * { min-width: 0; }
+  @media (min-width: 900px) { .hero { grid-template-columns: 1.15fr 1fr; } }
+  @media (max-width: 899px) { .hero { padding-top: 3rem; } }
+  .hero-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 1.5rem; }
+  .pill {
+    background: var(--ok-soft); color: var(--ok);
+    border-radius: 999px; padding: 0.3rem 1rem; font-size: 0.85rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 0.5rem;
+  }
+  .pill::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--ok); }
+  h1 { font-size: clamp(2.1rem, 5.5vw, 3.3rem); line-height: 1.12; letter-spacing: -0.025em; text-wrap: balance; font-weight: 700; }
+  h1 em { font-style: normal; color: var(--primary); display: block; }
+  .pill { max-width: 100%; }
+  .lede { color: var(--muted); max-width: 34rem; font-size: 1.1rem; text-wrap: balance; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+  .cta-note { font-size: 0.825rem; color: var(--muted); }
+
+  /* Chips dos diferenciais no hero */
+  .chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    border: 1px solid var(--line); background: var(--card);
+    border-radius: 999px; padding: 0.32rem 0.85rem;
+    font-size: 0.8rem; font-weight: 500;
+  }
+  .chip svg { width: 0.95rem; height: 0.95rem; stroke: var(--primary); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* Mock ilustrativo: o lote virando contrato */
+  .hero-mock { display: grid; gap: 0.9rem; position: relative; }
+  .hero-mock::before {
+    content: ""; position: absolute; inset: -1.5rem; z-index: -1; pointer-events: none;
+    background: radial-gradient(65% 55% at 50% 35%, var(--primary-soft), transparent 75%);
+  }
+  .mock-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 0.9rem;
+    padding: 1.25rem 1.4rem; box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+  }
+  .mock-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+  .mock-lot { display: flex; align-items: center; gap: 0.65rem; font-weight: 600; }
+  .mock-lot .grain {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2.4rem; height: 2.4rem; border-radius: 0.6rem; background: var(--primary-soft);
+  }
+  .mock-lot .grain svg { width: 1.3rem; height: 1.3rem; stroke: var(--primary); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .mock-lot small { display: block; font-weight: 400; font-size: 0.78rem; color: var(--muted); }
+  .badge-ok {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    background: var(--ok-soft); color: var(--ok); border-radius: 999px;
+    padding: 0.2rem 0.7rem; font-size: 0.75rem; font-weight: 600;
+  }
+  .badge-ok svg { width: 0.85rem; height: 0.85rem; stroke: var(--ok); fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+  .mock-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-top: 1.1rem; }
+  .mock-nums div b { display: block; font-size: 1.05rem; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .mock-nums div span { font-size: 0.72rem; color: var(--muted); }
+  .mock-cta {
+    margin-top: 1.15rem; display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+    background: var(--primary); color: #fff8f5; border-radius: 0.55rem;
+    padding: 0.6rem; font-size: 0.9rem; font-weight: 600;
+  }
+  .mock-cta svg { width: 1rem; height: 1rem; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .mock-steps { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.35rem 1rem; padding: 0 0.35rem; }
+  .mock-step { display: flex; align-items: center; gap: 0.45rem; font-size: 0.75rem; color: var(--muted); }
+  .mock-step .d { width: 0.55rem; height: 0.55rem; border-radius: 999px; background: var(--ok); flex: none; }
+  .mock-step.pend .d { background: var(--line); }
+  .mock-note { text-align: center; font-size: 0.72rem; color: var(--muted); opacity: 0.85; }
+
+  /* Faixa de números */
+  .stats { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--card) 60%, transparent); }
+  .stats-row { display: grid; gap: 1.5rem; padding: 2.25rem 0; grid-template-columns: repeat(2, 1fr); }
+  @media (min-width: 760px) { .stats-row { grid-template-columns: repeat(4, 1fr); } }
+  .stat { text-align: center; }
+  .stat b { display: block; font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 700; letter-spacing: -0.02em; color: var(--primary); font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 0.85rem; color: var(--muted); display: block; max-width: 15rem; margin: 0 auto; line-height: 1.45; }
+
+  section.plain { padding: 4rem 0; }
+  section.band { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--card) 60%, transparent); padding: 4rem 0; }
+  .kicker { text-align: center; text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.75rem; font-weight: 600; color: var(--primary); }
+  h2 { text-align: center; font-size: clamp(1.5rem, 3vw, 2rem); letter-spacing: -0.015em; margin-top: 0.5rem; text-wrap: balance; }
+  .section-lede { text-align: center; color: var(--muted); max-width: 40rem; margin: 0.75rem auto 0; text-wrap: balance; }
+
+  .grid-3 { display: grid; gap: 1rem; margin-top: 2.25rem; }
+  .grid-2 { display: grid; gap: 1rem; margin-top: 2.25rem; }
+  @media (min-width: 760px) {
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 0.9rem; padding: 1.5rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .card .icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2.75rem; height: 2.75rem; border-radius: 999px; background: var(--primary-soft);
+  }
+  .card .icon svg { width: 1.35rem; height: 1.35rem; stroke: var(--primary); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .card h3 { margin-top: 1rem; font-size: 1rem; }
+  .card > p { margin-top: 0.4rem; color: var(--muted); font-size: 0.925rem; }
+  .card .src { margin-top: 0.75rem; font-size: 0.75rem; color: var(--muted); opacity: 0.8; }
+
+  /* Diferenciais: os três pilares com peso visual próprio */
+  .diff .card { border-top: 3px solid var(--primary); }
+  .diff .label {
+    display: block; font-size: 0.72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--primary);
+    margin-bottom: 0.9rem;
+  }
+  .diff .icon { border-radius: 0.7rem; background: var(--primary); }
+  .diff .icon svg { stroke: #fff8f5; }
+  .diff .card h3 { font-size: 1.1rem; }
+  .diff-punch {
+    text-align: center; margin: 2.5rem auto 0; max-width: 42rem;
+    font-size: 1.15rem; line-height: 1.5; text-wrap: balance; color: var(--muted);
+  }
+  .diff-punch b { color: var(--ink); }
+
+  .aud h3 { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.05rem; }
+  .aud h3 svg { width: 1.25rem; height: 1.25rem; stroke: var(--primary); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .aud ul { margin: 0.9rem 0 0; padding: 0; list-style: none; display: grid; gap: 0.55rem; }
+  .aud li { display: flex; gap: 0.5rem; align-items: flex-start; color: var(--muted); font-size: 0.925rem; }
+  .aud li::before { content: "✓"; color: var(--ok); font-weight: 700; line-height: 1.5; }
+
+  /* Roadmap */
+  .roadmap { margin-top: 2.25rem; display: grid; gap: 0; position: relative; }
+  .phase { display: grid; grid-template-columns: 3rem 1fr; gap: 0 1rem; position: relative; padding-bottom: 1.75rem; }
+  .phase:last-child { padding-bottom: 0; }
+  .phase .dot {
+    width: 2rem; height: 2rem; border-radius: 999px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700; z-index: 1; margin-left: 0.5rem;
+  }
+  .phase::before { content: ""; position: absolute; left: 1.45rem; top: 2rem; bottom: 0; width: 2px; background: var(--line); }
+  .phase:last-child::before { display: none; }
+  .phase.now .dot { background: var(--ok); color: #fff; }
+  .phase.next .dot { background: var(--primary); color: #fff8f5; }
+  .phase.later .dot { background: var(--card); border: 2px solid var(--line); color: var(--muted); }
+  .phase h3 { font-size: 1rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .phase .tag { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; border-radius: 999px; padding: 0.1rem 0.6rem; }
+  .phase.now .tag { background: var(--ok-soft); color: var(--ok); }
+  .phase.next .tag { background: var(--primary-soft); color: var(--primary); }
+  .phase.later .tag { background: var(--line); color: var(--muted); }
+  .phase p { color: var(--muted); font-size: 0.925rem; margin-top: 0.25rem; max-width: 46rem; }
+
+  /* CTA duplo: produtor em destaque, investidor discreto */
+  .dual { display: grid; gap: 1rem; margin-top: 2.25rem; }
+  @media (min-width: 760px) { .dual { grid-template-columns: 2fr 1fr; } }
+  .dual .card { display: flex; flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+  .dual .card h3 { margin: 0; font-size: 1.15rem; }
+  .dual .card p { color: var(--muted); font-size: 0.925rem; flex: 1; }
+  .dual .who { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--primary); }
+  .dual .card.featured { border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); box-shadow: 0 6px 20px rgba(222, 91, 43, 0.08); }
+  .dual .card.quiet { background: color-mix(in srgb, var(--card) 55%, transparent); box-shadow: none; }
+  .dual .card.quiet .who { color: var(--muted); }
+  .dual .card.quiet h3 { font-size: 1rem; }
+  .dual .card.quiet p { font-size: 0.85rem; }
+
+  footer { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--card) 60%, transparent); }
+  .footer-row {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 0.75rem; padding: 1.5rem 0; color: var(--muted); font-size: 0.85rem;
+  }
+  .footer-src { padding: 0 0 1.5rem; color: var(--muted); font-size: 0.75rem; max-width: 60rem; }
+  .footer-src a { text-decoration: underline; text-underline-offset: 2px; }
+</style>
+</head>
+<body>
+<!-- Links do app: trocar http://localhost:3000 pelo domínio de produção ao publicar. -->
+
+<header>
+  <div class="container header-row">
+    <a class="brand" href="#">
+      <svg viewBox="0 0 120 132" role="img" aria-label="Plantor"><path d="M52 10 L78 24 L44 42 L44 92 L24 80 L24 30 Z"/><path d="M68 122 L42 108 L76 90 L76 40 L96 52 L96 102 Z"/><circle cx="60" cy="66" r="11"/></svg>
+      Plantor
+    </a>
+    <nav class="header-nav">
+      <a class="nav-link" href="#diferenciais">Diferenciais</a>
+      <a class="nav-link" href="#produto">Como funciona</a>
+      <a class="nav-link" href="#roadmap">Roadmap</a>
+      <a class="btn btn-primary" href="#participar">Participar</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- Hero: fala com o produtor; o mock mostra a promessa virando produto -->
+  <section class="container hero">
+    <div class="hero-copy fade-up">
+      <span class="pill">Piloto safra 2026/27 · vagas para produtores — sem custo</span>
+      <h1>Seus dados. Sua venda. <em>Sem surpresa.</em></h1>
+      <p class="lede">
+        A Plantor coleta tudo que sua fazenda já gera de dado — tratores, colheitadeira,
+        drones, silo, satélite, clima — consolida numa plataforma só e usa IA pra apoiar
+        a melhor decisão de venda. Na hora de fechar com a cooperativa, vira contrato
+        claro, assinado em minutos.
+      </p>
+      <div class="chip-row">
+        <span class="chip">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+          Coleta IoT automática
+        </span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 10l-.75-.07A4 4 0 0 1 8 6a4 4 0 0 1 4-4Z"/><path d="M9 10.5c-2.5 1-4 3-4 5.5a7 7 0 0 0 14 0c0-2.5-1.5-4.5-4-5.5"/><path d="M12 13v9"/></svg>
+          IA que apoia a decisão
+        </span>
+        <span class="chip">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>
+          Contrato com dados dentro
+        </span>
+      </div>
+      <div class="cta-row">
+        <a class="btn btn-primary btn-lg" href="#participar">Quero vender com meus dados</a>
+        <a class="btn btn-outline btn-lg" href="http://localhost:3000/login">Ver como funciona</a>
+      </div>
+      <p class="cta-note">A demonstração roda com dados de exemplo — 2 minutos, sem cartão, sem compromisso.</p>
+    </div>
+
+    <div class="hero-mock fade-up" aria-hidden="true">
+      <div class="mock-card">
+        <div class="mock-head">
+          <span class="mock-lot">
+            <span class="grain">
+              <svg viewBox="0 0 24 24"><path d="M12 2v20"/><path d="M12 6c-2.5 0-4.5-2-4.5-4 2.5 0 4.5 2 4.5 4Z"/><path d="M12 6c2.5 0 4.5-2 4.5-4-2.5 0-4.5 2-4.5 4Z"/><path d="M12 12c-2.5 0-4.5-2-4.5-4 2.5 0 4.5 2 4.5 4Z"/><path d="M12 12c2.5 0 4.5-2 4.5-4-2.5 0-4.5 2-4.5 4Z"/><path d="M12 18c-2.5 0-4.5-2-4.5-4 2.5 0 4.5 2 4.5 4Z"/><path d="M12 18c2.5 0 4.5-2 4.5-4-2.5 0-4.5 2-4.5 4Z"/></svg>
+            </span>
+            <span>Lote soja 2026/27<small>Talhão Norte · 42 ha colhidos</small></span>
+          </span>
+          <span class="badge-ok">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+            Verificado por sensores
+          </span>
+        </div>
+        <div class="mock-nums">
+          <div><b>2.940 sc</b><span>volume do lote</span></div>
+          <div><b>13,2%</b><span>umidade no silo</span></div>
+          <div><b>R$ 18,40</b><span>margem/saca no preço de hoje</span></div>
+        </div>
+        <div class="mock-cta">
+          <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          Enviar oferta e gerar contrato
+        </div>
+      </div>
+      <div class="mock-steps">
+        <span class="mock-step"><span class="d"></span>Colhido</span>
+        <span class="mock-step"><span class="d"></span>Oferta aceita</span>
+        <span class="mock-step"><span class="d"></span>Contrato assinado</span>
+        <span class="mock-step pend"><span class="d"></span>Entrega e pagamento</span>
+      </div>
+      <p class="mock-note">Ilustração com dados de exemplo — na demonstração você navega no fluxo real.</p>
+    </div>
+  </section>
+
+  <!-- Diferenciais: o que só a Plantor faz -->
+  <section class="band" id="diferenciais">
+    <div class="container">
+      <p class="kicker">Por que a Plantor</p>
+      <h2>Três coisas que só acontecem quando os dados estão dentro</h2>
+      <div class="grid-3 diff">
+        <div class="card">
+          <span class="label">IoT · dados da fazenda</span>
+          <span class="icon" aria-hidden>
+            <svg viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+          </span>
+          <h3>Tudo que a fazenda gera, num lugar só</h3>
+          <p>Tratores, colheitadeiras, drones, imagens de satélite, termometria do silo, estação de clima — tudo que sua operação já produz de dado no dia a dia chega sozinho na plataforma. Chega de planilha e de app espalhado: volume, qualidade e custo por saca sempre atualizados.</p>
+        </div>
+        <div class="card">
+          <span class="label">IA · apoio à decisão</span>
+          <span class="icon" aria-hidden>
+            <svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 10l-.75-.07A4 4 0 0 1 8 6a4 4 0 0 1 4-4Z"/><path d="M9 10.5c-2.5 1-4 3-4 5.5a7 7 0 0 0 14 0c0-2.5-1.5-4.5-4-5.5"/><path d="M12 13v9"/></svg>
+          </span>
+          <h3>Inteligência que joga do seu lado</h3>
+          <p>Conectada aos modelos de meteorologia usados no mercado, a IA cruza clima, seu custo e o preço pra avisar o que vem pela frente, precificar melhor sua produção e sugerir a hora e a oferta certa — do alerta à decisão automática, no nível que você escolher.</p>
+        </div>
+        <div class="card">
+          <span class="label">Contrato vivo</span>
+          <span class="icon" aria-hidden>
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>
+          </span>
+          <h3>O contrato com os dados dentro</h3>
+          <p>Seu lote sai com selo de verificação por sensores e a história completa do grão — do dia do plantio à colheita. O desconto de qualidade é projetado antes da balança e cada etapa fica numa trilha auditável, até o pagamento cair.</p>
+        </div>
+      </div>
+      <p class="diff-punch">Marketplace leiloa o preço. ERP organiza o custo. <b>A Plantor coloca os seus dados dentro do contrato — e isso muda a conversa na mesa.</b></p>
+    </div>
+  </section>
+
+  <!-- Problema -->
+  <section class="container plain" id="problema">
+    <p class="kicker">O problema</p>
+    <h2>A venda mais importante do ano ainda depende de confiança e memória</h2>
+    <div class="grid-3">
+      <div class="card">
+        <span class="icon" aria-hidden>
+          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </span>
+        <h3>Fechou no áudio, provou como?</h3>
+        <p>Preço, quantidade e prazo combinados no telefone ou no WhatsApp. Quando o mercado vira, cada um lembra de um acordo diferente — e quem paga a diferença costuma ser você.</p>
+      </div>
+      <div class="card">
+        <span class="icon" aria-hidden>
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        </span>
+        <h3>O desconto que chega de surpresa</h3>
+        <p>Umidade e impureza você só descobre no laudo, na balança do armazém. O desconto cai na hora de receber — quando não dá mais pra fazer nada.</p>
+      </div>
+      <div class="card">
+        <span class="icon" aria-hidden>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </span>
+        <h3>Vender sem saber seu custo por saca</h3>
+        <p>Os dados estão na colheitadeira, no silo e no satélite — mas espalhados em apps que não conversam. Sem seu custo e seu preço-alvo à mão, a venda sai no impulso ou tarde demais.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Números: a realidade de quem vende grão -->
+  <div class="stats">
+    <div class="container stats-row">
+      <div class="stat"><b>96%</b><span>dos produtores decidem negócio pelo WhatsApp (9ª Pesquisa ABMRA)</span></div>
+      <div class="stat"><b>10–30%</b><span>do valor do produto: a multa típica quando um contrato mal combinado dá errado</span></div>
+      <div class="stat"><b>R$ 565 bi</b><span>em contratos de safra (CPR) ativos no país — e o médio produtor ainda formaliza no papel</span></div>
+      <div class="stat"><b>98%</b><span>das propriedades já têm internet — seus dados já existem, só estão espalhados</span></div>
+    </div>
+  </div>
+
+  <!-- Produto: a jornada do produtor em 3 passos -->
+  <section class="band" id="produto">
+    <div class="container">
+      <p class="kicker">Como funciona</p>
+      <h2>Do talhão ao pagamento em três passos</h2>
+      <p class="section-lede">Funcionando hoje: dados de IoT da fazenda consolidados num painel só, IA que apoia a decisão de venda, contrato parametrizado nos padrões MAPA e assinatura digital com hash auditável.</p>
+      <div class="grid-3">
+        <div class="card">
+          <span class="icon" aria-hidden>
+            <svg viewBox="0 0 24 24"><path d="M13 7 9 3 5 7l4 4"/><path d="m17 11 4 4-4 4-4-4"/><path d="m8 12 4 4 6-6-4-4Z"/></svg>
+          </span>
+          <h3>1. A fazenda alimenta a plataforma sozinha</h3>
+          <p>O que você já tem — tratores, colheitadeira, drones, termometria do silo, satélite, estação de clima — manda os dados direto pra Plantor (IoT). Tudo consolidado num painel só; você não digita produtividade, só confirma o que quer vender.</p>
+        </div>
+        <div class="card">
+          <span class="icon" aria-hidden>
+            <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+          </span>
+          <h3>2. A IA apoia, você decide</h3>
+          <p>Com tudo consolidado, a IA cruza custo por saca, break-even, modelos de meteorologia e preço de mercado — avisa o que vem pela frente e sugere a hora e a oferta certa. A decisão é sempre sua, com os seus números.</p>
+        </div>
+        <div class="card">
+          <span class="icon" aria-hidden>
+            <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </span>
+          <h3>3. A venda vira contrato claro em minutos</h3>
+          <p>Contrato parametrizado, explicado em linguagem simples pela IA, assinado digitalmente (MP 2.200-2/2001) com data, hora e hash. Entregas, laudos e descontos acompanhados até o pagamento cair.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- E a sua cooperativa? -->
+  <section class="container plain" id="cooperativa">
+    <p class="kicker">E a sua cooperativa?</p>
+    <h2>A Plantor não tira você da cooperativa — deixa o negócio de vocês mais rápido</h2>
+    <p class="section-lede">Você continua vendendo pra quem sempre vendeu. A diferença é que a negociação chega redonda dos dois lados da mesa.</p>
+    <div class="grid-2">
+      <div class="card aud">
+        <h3>
+          <svg viewBox="0 0 24 24"><path d="M3 4h9l1 7"/><path d="M4 11V4"/><path d="M8 10V4"/><path d="M18 5c-.6 0-1 .4-1 1v5.6"/><path d="m10 11 11 .9c.6 0 .9.5.8 1.1l-.8 5h-1"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="19" r="2"/><path d="M9 19h6"/></svg>
+          Do seu lado
+        </h3>
+        <ul>
+          <li>Os sensores da fazenda (IoT) alimentam um painel só — volume, qualidade e custo consolidados, sem digitar nada</li>
+          <li>IA que apoia a decisão de venda e explica contrato, prazo e desconto — sem inventar números</li>
+          <li>Lote com selo de sensores negocia melhor e sem desconfiança</li>
+          <li>Alertas que evitam prejuízo: silo aquecendo, geada chegando, preço-alvo atingido</li>
+        </ul>
+      </div>
+      <div class="card aud">
+        <h3>
+          <svg viewBox="0 0 24 24"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
+          Do lado de quem compra
+        </h3>
+        <ul>
+          <li>A oferta chega com a história completa do grão: dia do plantio, adubação, chuvas, colheita e qualidade — direto dos dados do produtor</li>
+          <li>IA que apoia a análise do comprador: o preço pedido justifica a qualidade daquele lote?</li>
+          <li>Contrato gerado em um clique a partir da oferta aceita, sem retrabalho de papelada</li>
+          <li>Trilha auditável de ponta a ponta — menos disputa, mais confiança dos dois lados</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Roadmap -->
+  <section class="band" id="roadmap">
+    <div class="container">
+      <p class="kicker">Onde estamos</p>
+      <h2>Roadmap honesto: validar antes de escalar</h2>
+      <div class="roadmap">
+        <div class="phase now">
+          <span class="dot" aria-hidden>✓</span>
+          <div>
+            <h3>MVP funcional <span class="tag">hoje</span></h3>
+            <p>O ciclo completo já roda: campo → lote → oferta → contrato → assinatura → entregas → pagamento. Os dados de mercado, clima e máquinas ainda são simulados — e estão rotulados como simulação em cada tela, sem pegadinha.</p>
+          </div>
+        </div>
+        <div class="phase next">
+          <span class="dot" aria-hidden>2</span>
+          <div>
+            <h3>Piloto com operações reais <span class="tag">safra 2026/27</span></h3>
+            <p>5 a 10 produtores e 2 cooperativas vendendo de verdade pela plataforma. A meta é simples: contratos reais assinados e menos briga por qualidade na entrega.</p>
+          </div>
+        </div>
+        <div class="phase later">
+          <span class="dot" aria-hidden>3</span>
+          <div>
+            <h3>Dados de verdade e alertas no WhatsApp <span class="tag">pós-piloto</span></h3>
+            <p>Cotação de verdade (CEPEA/B3), modelos de meteorologia (Open-Meteo/INMET), satélite e imagens de drone, telemetria de tratores e colheitadeiras (John Deere/FieldView) e termometria de silo. E os avisos que importam — assinatura pendente, silo aquecendo, preço-alvo batido — direto no seu WhatsApp.</p>
+          </div>
+        </div>
+        <div class="phase later">
+          <span class="dot" aria-hidden>4</span>
+          <div>
+            <h3>Camada financeira <span class="tag">visão</span></h3>
+            <p>Com contrato auditável e produção comprovada por dados, abrem-se antecipação de recebíveis, barter e crédito mais justo — porque o risco deixa de ser chute.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA: produtor em destaque, investidor discreto -->
+  <section class="container plain" id="participar">
+    <p class="kicker">Participe</p>
+    <h2>Entre nessa safra com a gente</h2>
+    <div class="dual">
+      <div class="card featured">
+        <span class="who">Produtores de grãos</span>
+        <h3>Teste na sua operação — sem custo no piloto</h3>
+        <p>Estamos selecionando os primeiros produtores para o piloto da safra 2026/27. Você usa no seu fluxo real de venda, a gente aprende com você — e o produto nasce do jeito que a lavoura precisa. Cooperativas e tradings parceiras também são bem-vindas para receber as ofertas dos seus produtores.</p>
+        <a class="btn btn-primary btn-lg" href="http://localhost:3000/register">Criar conta e testar</a>
+      </div>
+      <div class="card quiet">
+        <span class="who">Investidores · parceiros</span>
+        <h3>Fale com o fundador</h3>
+        <p>O campo se conectou (98% das fazendas com internet), o capital validou a categoria e &gt;95% da comercialização segue analógica. Nosso ângulo é o contrato com dados dentro. MVP funcional, demonstração em 2 minutos.</p>
+        <a class="btn btn-outline" href="mailto:guilherme@klouz.tec.br">guilherme@klouz.tec.br</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container footer-row">
+    <a class="brand" href="#">
+      <svg viewBox="0 0 120 132" role="img" aria-label="Plantor"><path d="M52 10 L78 24 L44 42 L44 92 L24 80 L24 30 Z"/><path d="M68 122 L42 108 L76 90 L76 40 L96 52 L96 102 Z"/><circle cx="60" cy="66" r="11"/></svg>
+      Plantor
+    </a>
+    <p>Contratos parametrizados · assinatura eletrônica · MP 2.200-2/2001</p>
+    <p>Contato: <a href="mailto:guilherme@klouz.tec.br" style="text-decoration: underline; text-underline-offset: 2px;">guilherme@klouz.tec.br</a></p>
+  </div>
+  <div class="container footer-src">
+    Fontes dos números:
+    <a href="https://forbes.com.br/forbesagro/2025/09/internet-atinge-98-das-propriedades-e-whatsapp-vira-principal-canal-do-agro-diz-nova-pesquisa-abmra/" rel="noopener">9ª Pesquisa ABMRA (Forbes Agro)</a> ·
+    <a href="https://sna.agr.br/cadeia-da-soja-ajusta-estrategias-contra-quebras-de-contratos/" rel="noopener">SNA (cláusulas penais de 10–30% em contratos de soja)</a> ·
+    <a href="https://noticias.broto.com.br/gestao/registros-cpr-safra-2025-26" rel="noopener">Broto/B3 (estoque de CPR, maio/2026)</a> ·
+    <a href="https://www.theagribiz.com/agtechs/trade-24h-por-dia-a-aposta-da-grao-direto-para-quase-dobrar-o-volume-em-2026/" rel="noopener">The AgriBiz (comercialização digital)</a>.
+    Os dados de campo exibidos na demonstração são simulados e rotulados como tal.
+  </div>
+</footer>
+</body>
+</html>

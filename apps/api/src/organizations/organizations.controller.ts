@@ -1,16 +1,15 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
-import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { OrganizationsService } from "./organizations.service";
-import { searchOrganizationsSchema, type SearchOrganizationsDto } from "./dto/search-organizations.schema";
+import { Controller, Get, Query } from '@nestjs/common';
+import { Roles } from '../auth/decorators';
+import { OrganizationsService } from './organizations.service';
 
-@UseGuards(JwtAuthGuard)
-@Controller("organizations")
+@Controller('organizations')
 export class OrganizationsController {
   constructor(private readonly organizations: OrganizationsService) {}
 
-  @Get()
-  search(@Query(new ZodValidationPipe(searchOrganizationsSchema)) query: SearchOrganizationsDto) {
-    return this.organizations.search(query.type, query.q);
+  // Busca de produtores para o wizard (Etapa 1). Restrito a quem cria contratos.
+  @Roles('admin', 'operator')
+  @Get('producers')
+  searchProducers(@Query('q') q?: string) {
+    return this.organizations.searchProducers(q);
   }
 }

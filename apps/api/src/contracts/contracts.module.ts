@@ -1,10 +1,8 @@
-import { Module } from "@nestjs/common";
-import { ContractsController } from "./contracts.controller";
-import { ContractsService } from "./contracts.service";
-import { FieldDataModule } from "../field-data/field-data.module";
+import { Module } from '@nestjs/common';
+import { ContractsController } from './contracts.controller';
+import { ContractsService } from './contracts.service';
 
 @Module({
-  imports: [FieldDataModule],
   controllers: [ContractsController],
   providers: [ContractsService],
   exports: [ContractsService],
