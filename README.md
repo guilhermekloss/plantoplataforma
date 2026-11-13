@@ -1,197 +1,279 @@
-# Plantor — MVP
+# Plantor
 
-Plataforma SaaS B2B para contratos de grãos no agronegócio brasileiro. Conecta
-cooperativas/tradings e produtores rurais com criação de contratos parametrizados, assinatura digital (eletrônica simples — MP 2.200-2/2001), acompanhamento de entregas/qualidade e timeline auditável.
+**Contratos de grãos que nascem dos dados da lavoura.**
 
-## Stack
+Plantor é uma plataforma SaaS B2B para o agronegócio brasileiro que conecta
+**produtores rurais** a **cooperativas e tradings**. O produtor vê a própria
+produção (dados de máquinas, solo, clima e silo reunidos), escolhe o que vender
+e a plataforma transforma o lote em oferta; a cooperativa encontra a oferta no
+mercado e gera o contrato com um clique, já com os dados de campo anexados —
+assinatura eletrônica, acompanhamento de entregas, desconto automático por
+qualidade e uma trilha de auditoria imutável.
 
-| Camada | Tecnologia |
+> **Estado do projeto:** MVP funcional (Fase 01). As integrações externas de
+> dados — cotações, clima, satélite, telemetria de máquinas e termometria de
+> silo — são **simuladas de propósito** por *providers* que espelham o contrato
+> das APIs reais. Blockchain, PDF da CPR, PIX e WhatsApp estão no roadmap.
+> Veja [Roadmap](#roadmap).
+
+## Sumário
+
+- [O problema](#o-problema)
+- [O que a plataforma faz](#o-que-a-plataforma-faz)
+- [Arquitetura](#arquitetura)
+- [Início rápido](#início-rápido)
+- [Dados de demonstração](#dados-de-demonstração)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Scripts](#scripts)
+- [Testes](#testes)
+- [Segurança e multi-tenancy](#segurança-e-multi-tenancy)
+- [Integrações de dados](#integrações-de-dados-simuladas-no-mvp)
+- [Documentação](#documentação)
+- [Roadmap](#roadmap)
+- [Licença e contribuições](#licença-e-contribuições)
+
+## O problema
+
+A contratação de grãos no Brasil ainda depende de planilhas, papel e
+conciliação manual. Isso gera retrabalho, erros de qualidade e prazo, descontos
+disputados na entrega e pouca rastreabilidade — e o produtor, muitas vezes,
+assina sem entender por completo o que está contratando.
+
+## O que a plataforma faz
+
+### Para o produtor (experiência mobile-first)
+
+| Área | O que entrega |
 |---|---|
-| Monorepo | Turborepo + npm workspaces |
-| Frontend | Next.js 14 (App Router), TypeScript, Tailwind, shadcn/ui, NextAuth v5, recharts, lucide-react |
-| Backend | NestJS 10, Prisma 5, PostgreSQL |
-| IA | Google Gemini (`@google/genai`, modelo `gemini-2.5-flash`) — opcional, com fallback determinístico sem chave |
-| Auth | JWT (access 15m / refresh 7d), bcrypt, RBAC |
-| Email | Resend (templates HTML) |
-| Multi-tenant | Shared DB + RLS via middleware Prisma |
+| **Meu campo** | Telemetria da fazenda em um só lugar: colheitadeira, plantio, solo, clima do ciclo; **NDVI de satélite** com estimativa de produtividade antes da colheita; **termometria do silo** com alerta de desconto em R$ quando a massa aquece contra a cláusula de umidade do contrato; custo de produção × preço de mercado (break-even e margem); **preço-alvo** por cultura com sinal de venda; inteligência climática cruzando previsão do tempo com prazos de entrega. |
+| **Produção** | Funil de venda: lotes colhidos e aptos → oferta no marketplace → contrato. Uma IA sugere ofertas (imediatas ou antecipadas, a partir do NDVI) com preço e margem calculados. |
+| **Contratos** | Lista, detalhe com linha do tempo, assinatura eletrônica e explicação do contrato em **linguagem simples** (sem juridiquês), com os riscos em R$ destacados. |
+| **Assistente** | Chat que responde prazos, quanto vai receber, multa e desconto por umidade **a partir dos contratos reais** — nunca inventa números. Funciona com Gemini ou, sem chave, com respostas determinísticas. |
 
-## Estrutura
+### Para a cooperativa / trading
+
+| Área | O que entrega |
+|---|---|
+| **Mercado** | Ofertas de lotes publicadas por produtores, com dados de campo já anexados, selo **"verificado por sensores"** ou **"declarado"**, rastreabilidade do lote e análise de preço. Aceite e geração do contrato com um clique. |
+| **Contratos** | Wizard de 5 etapas (partes, objeto, preço, entrega, revisão), assinatura com hash, disputa e cancelamento. |
+| **Entregas** | Registro de entregas, laudo de qualidade, classificação MAPA automática, **desconto por qualidade** e liberação de pagamento até a liquidação. |
+| **Painel** | KPIs e distribuição de contratos por status. |
+
+### Ciclo de vida do contrato
+
+```
+rascunho → pendente_assinatura_comprador → pendente_assinatura_produtor → assinado
+        → em_execucao → entregue_parcial → liquidado          (disputado · cancelado)
+```
+
+A máquina de estados é compartilhada entre API e web (`packages/shared`). Cada
+transição gera um evento na linha do tempo do contrato, e a assinatura registra
+o **hash SHA-256 do JSON canônico** do contrato — qualquer alteração posterior
+é detectável.
+
+Grãos suportados: soja, milho, café, trigo, algodão, sorgo e feijão.
+
+## Arquitetura
+
+Monorepo [Turborepo](https://turbo.build) com npm workspaces.
 
 ```
 apps/
-  api/        NestJS — auth, contracts, deliveries, dashboard, notifications,
-              field-data (telemetria/clima/mercado + providers simulados de
-              satélite/silo/máquinas), offers (marketplace de lotes),
-              organizations (busca de produtores), ai (explicação e assistente Gemini)
-  web/        Next.js — login/registro/convite, dashboard, contratos (wizard, detalhe),
-              Meu campo, Produção, Mercado, Assistente
+  api/        NestJS 10 + Prisma 5 + PostgreSQL
+              auth · contracts · deliveries · dashboard · notifications
+              field-data (providers simulados) · offers · organizations · ai
+  web/        Next.js 14 (App Router) + Tailwind + shadcn/ui + NextAuth v5
+              login/registro/convite · painel · contratos · Meu campo ·
+              Produção · Mercado · Assistente
 packages/
-  shared/     enums, defaults MAPA, hash canônico, máquina de estados, cálculo de desconto
+  shared/     Enums, defaults MAPA, hash canônico, máquina de estados e cálculo
+              de desconto — usado por API e web (CommonJS)
+docs/         Specs, plano técnico de dados/IoT e histórico de decisões
+landingpage/  Página institucional estática
 ```
 
-### Novas telas e módulos (pós-MVP)
-
-| Área | O que faz |
+| Camada | Tecnologia |
 |---|---|
-| **Meu campo** (`/campo`) | Painel do produtor com telemetria de campo (colheitadeira, plantio, solo, NDVI, clima do ciclo), armazenagem pós-colheita (termometria de silo com alerta de temperatura), custo de produção vs. preço de mercado (break-even/margem) e inteligência climática cruzando previsão do tempo com prazos de contrato em aberto. |
-| **Produção** (`/producao`) | Funil de venda do produtor: lotes colhidos/aptos → oferta no marketplace → contrato. Mostra sugestões de oferta geradas por IA a partir dos lotes disponíveis. |
-| **Mercado** (`/mercado`) | Marketplace para cooperativas/tradings: lista ofertas de lotes disponibilizadas por produtores, com dados de campo já anexados, para aceitar e gerar contrato com um clique. |
-| **Assistente** (`/assistant`) | Chat com IA (Gemini) para o produtor tirar dúvidas sobre os próprios contratos, prazos e descontos por qualidade, sempre a partir dos dados reais (nunca inventa números). |
-| API `ai` | `POST /ai/contracts/:id/explain` (explica um contrato em linguagem simples), `POST /ai/assistant` (chat), `POST /ai/suggest-contracts` (agente que sugere ofertas a partir dos lotes aptos do produtor). Rate limit próprio (20 req/min). |
-| API `field-data` | `GET /field-data/overview` — telemetria + clima + cotações + decisão de venda, e ainda: série NDVI com estimativa pré-colheita (`satellite`), termometria do silo com projeção de desconto contratual (`storage.telemetry`/`storageRisk`) e sinal de preço-alvo (`market.quotes[].targetHit`). `POST /field-data/events/harvest` — webhook de colheita da OEM (cria o lote sozinho, idempotente por `externalId`; `/simulate` gera o evento em dev). `PATCH /field-data/target-price` — preço-alvo por cultura. |
-| API `offers` | Marketplace de lotes: produtor cria oferta (`POST /offers`), lista as próprias (`GET /offers/mine`), cooperativa/trading vê o marketplace (`GET /offers/marketplace`, cada oferta com selo `verification` — "sensores" quando o lote tem telemetria/termometria/NDVI anexados) e aceita (`POST /offers/:id/accept`), virando `Contract`. |
-| API `organizations` | `GET /organizations/producers?q=` — busca de produtores para a Etapa 1 do wizard de contrato. |
+| Frontend | Next.js 14, TypeScript, Tailwind, shadcn/ui, NextAuth v5, recharts, lucide-react |
+| Backend | NestJS 10, Prisma 5, PostgreSQL 16, Zod, Throttler |
+| Auth | JWT (access 15 min / refresh 7 dias), bcrypt, RBAC por tipo de organização |
+| IA | Google Gemini (`gemini-2.5-flash`) — **opcional**, com fallback determinístico |
+| E-mail | Resend (templates HTML) — opcional em dev (sem chave, apenas loga) |
+| Testes | Vitest (unit + e2e com Postgres real), supertest |
 
-Novos models Prisma: `FieldReading` (telemetria de campo — colheita, plantio, solo, clima, armazenagem, custo) e `Offer` (oferta de lote do produtor até virar contrato). `Organization` ganhou `farmProfile`/`livestock` (JSON) para perfil de propriedade mista (área/pastagem/reserva e rebanho).
+Decisões de arquitetura e armadilhas conhecidas estão em
+[`docs/historico-decisoes.md`](docs/historico-decisoes.md).
 
-## Integrações de dados (simuladas no MVP)
+## Início rápido
 
-Os feeds de campo/mercado são **simulados** (determinísticos por dia, rotulados
-`— simulado no MVP` no `source`). Cada um espelha o contrato de uma API real, a
-consumir na Fase 03 trocando só a implementação do provider
-(plano completo em [docs/plano-tecnico-dados-iot.md](docs/plano-tecnico-dados-iot.md)):
-
-| Dado | API real a consumir (Fase 03) | Provider | Alimenta |
-|---|---|---|---|
-| Cotações de grãos | **CEPEA/ESALQ** (indicadores diários soja/milho/trigo) e **B3** (futuros CCM/SFI) | `market.provider` | Break-even/margem, sinal de venda, KPIs de Mercado |
-| Previsão do tempo | **Open-Meteo** (gratuita, sem chave) com fallback **INMET** (estações oficiais) | `weather.provider` | Alertas de geada/chuva, janela seca, inteligência climática × prazos de contrato |
-| NDVI / saúde da lavoura | **Copernicus Sentinel-2** (gratuito) ou **EOSDA Crop Monitoring API** | `satellite.provider` | Estimativa de volume pré-colheita, sugestão de oferta a termo (IA) |
-| Telemetria de máquinas | **John Deere Operations Center API** (OAuth2), **Climate FieldView**; multi-marca via **IoTag** | `telemetry.provider` | Criação automática de lote na colheita (funil de Produção), custo de combustível |
-| Termometria de silo | **Procer** ou **QualyAgro (QUALYWireless)** | `silo.provider` | Alerta de qualidade com impacto R$ nas cláusulas de desconto do contrato |
-
-### Design system (web)
-
-Primitivas compartilhadas a reutilizar em telas novas (`apps/web/src`):
-- `components/grain-icon.tsx` — `GrainChip`/`GrainIcon`: ícone SVG por tipo de grão (nunca emoji 🌾/🌽).
-- `components/kpi-card.tsx` — `KpiCard`: cartão de KPI padrão.
-- `lib/format.ts` — `formatMoneyCompact`/`formatSacksCompact`: valores monetários grandes sempre compactados nos KPIs (valor completo no `title`).
-- `animate-fade-up` (globals.css) — utilitária de entrada de página.
-- Disposição padrão: páginas de listagem/dashboard usam `container` com zona principal + `aside` em `lg:grid-cols-3`; páginas de formulário/documento único ficam estreitas (`max-w-2xl`/`max-w-3xl`).
-
-## Pré-requisitos
-
-- Node 18+ (testado em 26)
-- Docker (para o Postgres local) **ou** um Postgres acessível
-- Conta Resend (opcional em dev — sem a chave, emails são apenas logados)
-- Chave da API Gemini (opcional em dev — sem `GEMINI_API_KEY`, os recursos de IA usam fallback determinístico, sem custo/latência de LLM)
-
-## Setup local
+**Pré-requisitos:** Node 18+ (testado no 26), npm e Docker (para o Postgres local).
 
 ```bash
 # 1. Dependências
 npm install
 
-# 2. Banco local (Postgres em Docker, porta 5434)
+# 2. Postgres local (Docker, porta 5434)
 docker compose up -d
 
-# 3. Variáveis de ambiente
-cp .env.example .env                 # referência geral
-# apps/api/.env e apps/web/.env.local já vêm com valores de dev apontando p/ o Docker
+# 3. Variáveis de ambiente (veja a próxima seção para gerar os segredos)
+#    Crie apps/api/.env e apps/web/.env.local — modelo em .env.example
 
-# 3b. Testes e2e: crie apps/api/.env.test (bloco no fim do .env.example)
-
-# 4. Build do pacote compartilhado (a api consome o dist) + migração + seed
+# 4. Pacote compartilhado (a API consome o build) e banco
 npm run build --workspace=@plantor/shared
+npm run db:migrate:deploy --workspace=@plantor/api
+npm run db:seed --workspace=@plantor/api
 
-# Migração + seed (cenário completo de demo: cooperativa + 3 produtores,
-#    contratos em todos os estados, marketplace com ofertas e dados de campo)
-npm run db:migrate --workspace=@plantor/api
-npm run db:seed    --workspace=@plantor/api
-
-# 5. Subir tudo (api em :3001, web em :3000)
+# 5. Subir API (http://localhost:3001) e web (http://localhost:3000)
 npm run dev
 ```
 
-Credenciais do seed (senha `plantor123`):
+Abra <http://localhost:3000> e entre com um dos usuários da
+[demonstração](#dados-de-demonstração).
 
-| Login | Papel | O que mostra na demo |
+> Se a porta 3000 ou 3001 já estiver em uso, ajuste `PORT` na API e a porta do
+> web (`next dev -p <porta>`), e atualize `APP_WEB_URL`, `CORS_ORIGINS` e
+> `NEXTAUTH_URL` para a nova origem.
+
+## Dados de demonstração
+
+`npm run db:seed` cria uma base de demonstração completa. Senha de todos os
+usuários: **`plantor123`** (só para desenvolvimento local).
+
+| Login | Perfil | O que mostra |
 |---|---|---|
-| `operador@cotrijal.example` | Cooperativa | Dashboard com 6 contratos no ciclo completo (rascunho → liquidado), Mercado com 3 ofertas (selo "verificado por sensores" vs "declarado"), pagamento pendente a liberar |
-| `joao@fazenda.example` | Produtor 24 ha | Meu campo com silo aquecendo × cláusula de contrato (alerta de desconto em R$), sinal de preço-alvo da soja, lavoura de trigo em desenvolvimento com NDVI, sugestão de oferta antecipada da IA |
-| `gerente@boavista.example` | Fazenda mista 10.000 ha | Escala: 5 lavouras + 4.500 cabeças, contrato liquidado com histórico de entregas pagas, oferta de sorgo no marketplace |
-| `maria@boaesperanca.example` | Sítio 18 ha | Produtor sem sensores — oferta "declarada" (contraste do selo) |
+| `operador@cotrijal.example` | Cooperativa | Painel com 6 contratos em todos os estados, Mercado com 3 ofertas (selo "verificado por sensores" × "declarado"), pagamento a liberar |
+| `joao@fazenda.example` | Produtor, 24 ha | Meu campo com silo aquecendo × cláusula do contrato (desconto em R$), sinal de preço-alvo da soja, trigo em desenvolvimento com NDVI, sugestão de oferta antecipada |
+| `gerente@boavista.example` | Fazenda mista, 10.000 ha | Escala: 5 lavouras e 4.500 cabeças de gado, contrato liquidado com entregas pagas |
+| `maria@boaesperanca.example` | Sítio, 18 ha | Produtor sem sensores — oferta "declarada" |
 
-O seed é **restaurador**: os contratos da demo são recriados do zero a cada
-execução, então `npm run db:seed` sempre devolve a base ao estado de
-apresentação. `npm run db:seed:reset --workspace=@plantor/api` limpa tudo e
-re-seeda.
+O seed é **restaurador**: recria os contratos da demo a cada execução, e suas
+datas são deslocadas até o dia atual para que os prazos nunca apareçam
+vencidos. `npm run db:seed:reset --workspace=@plantor/api` limpa a base inteira
+antes de re-semear.
 
-## Scripts úteis
+## Variáveis de ambiente
+
+Cada app valida as suas variáveis com Zod ao iniciar (`apps/api/src/config/env.schema.ts`
+e `apps/web/src/env.ts`). **Nunca faça commit de `.env` reais.**
+
+Para desenvolvimento local com o Docker deste repositório:
 
 ```bash
-npm run build       # turbo build (shared → api → web)
-npm run typecheck   # tsc em todos os workspaces
-npm run test        # testes unitários (sem DB)
-npm run test:e2e --workspace=@plantor/api        # integração contra Postgres (banco plantor_test)
-npm run test:cjs-smoke --workspace=@plantor/shared # shared carrega via require() (após o build)
-npm run db:seed --workspace=@plantor/api         # re-seed da demo (restaurador, idempotente)
-npm run db:seed:reset --workspace=@plantor/api   # limpa a base inteira e re-seeda (pós-e2e)
+# apps/api/.env
+NODE_ENV=development
+PORT=3001
+DATABASE_URL="postgresql://plantor:plantor@localhost:5434/plantor?schema=public"
+DIRECT_URL="postgresql://plantor:plantor@localhost:5434/plantor?schema=public"
+JWT_ACCESS_SECRET="<gere com: openssl rand -base64 48>"
+JWT_REFRESH_SECRET="<gere outro com: openssl rand -base64 48>"
+APP_WEB_URL="http://localhost:3000"
+CORS_ORIGINS="http://localhost:3000"
+```
+
+```bash
+# apps/web/.env.local
+NEXT_PUBLIC_API_URL="http://localhost:3001/api"
+NEXTAUTH_URL="http://localhost:3000"
+AUTH_SECRET="<gere com: openssl rand -base64 32>"
+```
+
+| Variável | Obrigatória | Para quê |
+|---|---|---|
+| `DATABASE_URL` / `DIRECT_URL` | sim | Postgres (runtime / migrações). Em produção, Supabase com pooling |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | sim | Assinatura dos tokens (≥ 32 caracteres) |
+| `AUTH_SECRET` | sim (web) | Segredo do NextAuth |
+| `GEMINI_API_KEY` | não | IA real (explicação, assistente, sugestões). Sem ela, tudo roda no modo determinístico |
+| `RESEND_API_KEY` | não | Envio real de e-mails (convites, avisos de prazo). Sem ela, apenas loga |
+| `CORS_ORIGINS`, `APP_WEB_URL` | recomendado | Origens permitidas e links dos e-mails |
+| `THROTTLE_TTL_SECONDS` / `THROTTLE_LIMIT` | não | Rate limit global (padrão: 100 req/min por IP) |
+| `SENTRY_DSN` | não | Observabilidade |
+
+A lista completa e comentada está em [`.env.example`](.env.example).
+
+## Scripts
+
+```bash
+npm run dev          # api + web em modo desenvolvimento
+npm run build        # build de tudo (shared → api → web)
+npm run typecheck    # tsc em todos os workspaces
+npm run lint         # eslint
+npm run test         # testes unitários (sem banco)
+
+npm run test:e2e --workspace=@plantor/api           # integração contra Postgres
+npm run test:cjs-smoke --workspace=@plantor/shared  # shared carrega via require()
+npm run db:seed --workspace=@plantor/api            # re-semeia a demo
+npm run db:seed:reset --workspace=@plantor/api      # limpa tudo e re-semeia
 ```
 
 ## Testes
 
-- **Unit** (`packages/shared`, `apps/api`): lógica pura — hash canônico, MAPA, desconto, máquina de estados, regra de acesso (`contract-access.spec.ts`).
-- **e2e** (`apps/api/test/*.e2e-spec.ts`): HTTP real + PostgreSQL (Docker), conforme a regra de não mockar o banco.
+- **Unitários** (`packages/shared`, `apps/api`): hash canônico, tabelas MAPA,
+  desconto por qualidade, máquina de estados, regra de acesso a contratos e o
+  assistente determinístico.
+- **e2e** (`apps/api/test/*.e2e-spec.ts`): HTTP real contra PostgreSQL, sem
+  mock de banco — autenticação e convite, contratos e assinatura, entregas e
+  laudos, dashboards, avisos de prazo, dados de campo, webhook de colheita e
+  marketplace de ofertas.
 
-| Arquivo | Cobre |
-|---|---|
-| `auth.e2e-spec.ts` | Login, refresh, convite |
-| `contracts.e2e-spec.ts` | Wizard, assinatura+hash, máquina de estados |
-| `dashboard.e2e-spec.ts` | Dashboards por ator |
-| `deliveries.e2e-spec.ts` | Entregas, laudo, desconto por qualidade |
-| `rls.e2e-spec.ts` | Acesso a `Contract` pela regra buyer/seller (multi-tenant) |
-| `notifications.e2e-spec.ts` | Aviso de prazo (janela de 30 dias) |
-| `field-data.e2e-spec.ts` | `GET /field-data/overview` — telemetria, culturas, estimativa de preço; NDVI/estimativa pré-colheita do lote em desenvolvimento; silo aquecendo × cláusula do contrato (umidade projetada, desconto em R$, alerta urgente); preço-alvo (`PATCH /target-price`, `targetHit`, sinal de venda, remoção do alvo, RBAC); sugestão de IA `antecipada` vs `imediata` (`POST /ai/suggest-contracts`) |
-| `field-data-events.e2e-spec.ts` | Webhook de colheita (`POST /field-data/events/harvest`): cria lote `colhido`, idempotência por `externalId`, lote no overview, RBAC 403 para cooperativa, payload inválido 400, `/simulate` (botão dev) |
-| `offers.e2e-spec.ts` | Marketplace de lotes: RBAC, oferta → aceite → contrato, ofertas já usadas/contratadas, selo `verification` (`declarado` sem sensores; `sensores` com telemetria+silo+NDVI) |
+A suíte e2e **apaga os dados** do banco que usa; por isso roda num banco
+separado, `plantor_test`, na mesma instância do Docker. Crie
+`apps/api/.env.test` (modelo no fim do [`.env.example`](.env.example)). O
+`test/global-setup.ts` aborta se o nome do banco não contiver "test" e aplica as
+migrações antes da suíte — o banco de desenvolvimento nunca é tocado.
 
-> A suíte e2e apaga os dados do banco que usa, por isso roda num banco
-> **separado** (`plantor_test`, mesma instância Docker na 5434), configurado em
-> `apps/api/.env.test` (modelo no `.env.example`). O `test/global-setup.ts`
-> aborta se o nome do banco não contiver "test" e aplica as migrações antes da
-> suíte — o seed de dev nunca é tocado.
+## Segurança e multi-tenancy
 
-### Pendências de cobertura
+- **Isolamento entre organizações:** o tenant vem **sempre** do JWT (via CLS),
+  nunca do cliente. Contratos cruzam dois tenants e são acessíveis apenas por
+  comprador ou vendedor (`apps/api/src/prisma/contract-access.ts`).
+- **RBAC** por tipo de organização (cooperativa/trading × produtor) em cada rota.
+- **Integridade:** assinatura eletrônica simples (MP 2.200-2/2001) com hash
+  SHA-256 do JSON canônico; linha do tempo de auditoria por contrato.
+- **Rate limiting** global e específico da IA (20 req/min), CORS por lista
+  explícita e validação de entrada com Zod em todas as rotas.
+- **Segredos** só por variáveis de ambiente validadas no startup.
 
-- A assistente tem fallback determinístico (`apps/api/src/ai/assistant-fallback.ts`, com testes unitários): sem `GEMINI_API_KEY` ou com o Gemini fora, responde prazos, valores, multa e desconto por umidade a partir dos contratos reais.
-- Não há e2e para `/ai/explain` e `/ai/assistant` nem para `organizations` (`/organizations/producers`) — descobertos manualmente/via smoke test. `/ai/suggest-contracts` é coberto pelo `field-data.e2e-spec.ts` (caminho de fallback determinístico, sem chave Gemini).
-- Os providers simulados (`apps/api/src/field-data/providers/`) não têm testes unitários próprios — são exercitados via e2e do overview. Ao trocar por integrações reais (Fase 03), criar testes de contrato por provider.
+Encontrou uma vulnerabilidade? Não abra uma issue pública — entre em contato
+com o mantenedor pelo perfil do GitHub.
 
-## Multi-tenancy (RLS)
+## Integrações de dados (simuladas no MVP)
 
-- Middleware Prisma injeta `tenantId` apenas em `TENANT_OWNED_MODELS` (hoje vazio).
-- `Contract` cruza dois tenants: acesso pela regra `OR(buyerId, sellerId)`
-  (`apps/api/src/prisma/contract-access.ts`). Filhos do contrato são autorizados
-  pelo contrato pai na camada de serviço.
-- O tenant vem **sempre** do JWT (via CLS), nunca do client.
+Os feeds de campo e mercado são **simulados** (determinísticos por dia e
+rotulados `— simulado no MVP`). Cada *provider* espelha o contrato de uma API
+real; na Fase 03 troca-se apenas a implementação, não os consumidores:
 
-## Produção
+| Dado | API real a consumir | Provider | Alimenta |
+|---|---|---|---|
+| Cotações | CEPEA/ESALQ e B3 | `market.provider` | Break-even, margem, sinal de venda |
+| Clima | Open-Meteo (fallback INMET) | `weather.provider` | Alertas de geada/chuva, risco climático dos prazos |
+| NDVI | Copernicus Sentinel-2 ou EOSDA | `satellite.provider` | Estimativa pré-colheita, oferta antecipada |
+| Máquinas | John Deere Operations Center, Climate FieldView, IoTag | `telemetry.provider` | Lote criado sozinho na colheita (webhook) |
+| Silo | Procer ou QualyAgro | `silo.provider` | Alerta de desconto na cláusula de umidade |
 
-- **web** → Vercel · **api** → Railway · **db** → Supabase.
-- Preencher `.env` com `DATABASE_URL`/`DIRECT_URL` (Supabase), segredos JWT,
-  `AUTH_SECRET` (NextAuth), `RESEND_API_KEY` e `CORS_ORIGINS`.
-- `npm run db:migrate:deploy --workspace=@plantor/api` aplica migrações.
+Plano completo em [`docs/plano-tecnico-dados-iot.md`](docs/plano-tecnico-dados-iot.md).
 
-## Status dos módulos (MVP completo)
+## Documentação
 
-| Módulo | Conteúdo |
-|---|---|
-| 0 | Scaffolding, schema, RLS, validação de env |
-| 1 | Auth, convite (magic link), NextAuth |
-| 2 | Contratos: wizard 5 etapas, assinatura+hash, máquina de estados, emails |
-| 3 | Dashboards por ator (cooperativa desktop / produtor mobile) |
-| 4 | Entregas, laudo manual, grade MAPA automática, desconto, liquidação |
-| 5 | Timeline de auditoria (`ContractTimeline`) |
-| 6 | Meu campo: telemetria (colheitadeira/plantio/solo/clima), armazenagem, custo x margem, inteligência climática de prazos |
-| 7 | Marketplace de lotes: oferta do produtor (Produção) → aceite da cooperativa/trading (Mercado) → contrato |
-| 8 | IA (Gemini): explicação de contrato, assistente de chat, sugestão de ofertas — com fallback sem chave |
-| 9 | Dados & IoT (providers simulados): NDVI/estimativa pré-colheita, termometria de silo × cláusula de desconto, webhook de colheita (lote automático), preço-alvo/sinal de venda, oferta antecipada por IA, selo "verificado por sensores" — ver [docs/plano-tecnico-dados-iot.md](docs/plano-tecnico-dados-iot.md). UI em Meu campo: cards de NDVI (curva + estimativa) e de termometria do silo com desconto projetado em R$, preço-alvo por cultura e botão "Simular colheita" (só fora de produção). |
+- [`docs/historico-decisoes.md`](docs/historico-decisoes.md) — direção de produto, decisões de arquitetura e armadilhas conhecidas.
+- [`docs/plano-tecnico-dados-iot.md`](docs/plano-tecnico-dados-iot.md) — providers, eventos de campo e plano de integrações reais.
+- [`docs/specs/`](docs/specs/) — especificações originais: guia do projeto, prompt de implementação do MVP e pesquisa de mercado.
 
-### Pendências conscientes (Fase 02 / fora do MVP)
+## Roadmap
 
-- Geração de PDF da CPR e upload de laudo (campos `fileUrl`/`fileHash` reservados).
-- Blockchain (Polygon), PIX, WhatsApp, ICP-Brasil, oráculos B3/CBOT.
-- Templates de email com React Email (hoje HTML simples).
-- "Salvar rascunho parcial" exigiria tornar campos de `Contract` nullable.
-- Integrações reais dos providers (Fase 03): ver tabela em
-  [Integrações de dados](#integrações-de-dados-simuladas-no-mvp).
+**Feito (MVP, Fase 01)** — scaffolding e multi-tenancy · autenticação e convite ·
+contratos (wizard, assinatura com hash, máquina de estados) · dashboards por
+ator · entregas, laudo, grade MAPA e desconto · timeline de auditoria ·
+Meu campo · marketplace de lotes · IA com fallback · dados de campo e IoT
+simulados.
+
+**Próximo**
+
+- Fase 02: PDF da CPR e upload de laudo, registro em blockchain (Polygon), PIX, alertas por WhatsApp, ICP-Brasil.
+- Fase 03: integrações reais dos providers (tabela acima) e oráculos de preço B3/CBOT.
+- Templates de e-mail com React Email e "salvar rascunho parcial" de contrato.
+
+## Licença e contribuições
+
+Este repositório **não possui licença open source**: por padrão, todos os
+direitos são reservados ao autor. Para usar, redistribuir ou contribuir,
+entre em contato antes. Sugestões e relatos de bugs são bem-vindos via issues.
