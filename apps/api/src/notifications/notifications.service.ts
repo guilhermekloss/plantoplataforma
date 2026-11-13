@@ -1,10 +1,12 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { Cron, CronExpression } from "@nestjs/schedule";
-import { PrismaService } from "../prisma/prisma.service";
-import { EmailService } from "../email/email.service";
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
+import { contractDeadlineWarningEmail } from '../email/templates';
 
-export const DEADLINE_WARNING_DAYS = 30;
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const DAY = 24 * 3600 * 1000;
+// Não avisa rascunhos (não são compromisso) nem contratos já encerrados.
+const SKIP_STATUSES = ['rascunho', 'liquidado', 'cancelado'] as const;
 
 @Injectable()
 export class NotificationsService {
@@ -15,41 +17,46 @@ export class NotificationsService {
     private readonly email: EmailService,
   ) {}
 
+  /** Roda diariamente às 8h: avisa a cooperativa quando a entrega cruza a marca de 30 dias. */
   @Cron(CronExpression.EVERY_DAY_AT_8AM)
-  async checkUpcomingDeadlines(): Promise<number> {
-    const windowEnd = new Date(Date.now() + DEADLINE_WARNING_DAYS * ONE_DAY_MS);
+  async handleDeadlineWarnings(): Promise<void> {
+    const count = await this.notifyUpcomingDeadlines();
+    if (count > 0) {
+      this.logger.log(`Avisos de prazo (30 dias) enviados: ${count}`);
+    }
+  }
+
+  /**
+   * Envia o aviso para contratos cujo deadline está na janela (29, 30] dias —
+   * garante que cada contrato seja notificado uma única vez, sem coluna extra.
+   * Retorna a quantidade de avisos enviados.
+   */
+  async notifyUpcomingDeadlines(now: Date = new Date()): Promise<number> {
+    const windowStart = new Date(now.getTime() + 29 * DAY);
+    const windowEnd = new Date(now.getTime() + 30 * DAY);
 
     const contracts = await this.prisma.contract.findMany({
       where: {
-        status: { in: ["ASSINADO", "ENTREGA_PARCIAL"] },
-        deliveryDeadline: { lte: windowEnd },
-        deadlineWarningSentAt: null,
+        status: { notIn: [...SKIP_STATUSES] },
+        deliveryDeadline: { gt: windowStart, lte: windowEnd },
       },
-      include: {
-        buyerOrg: { include: { users: true } },
-        sellerOrg: { include: { users: true } },
-      },
+      include: { buyer: { select: { email: true } } },
     });
 
     for (const contract of contracts) {
-      const users = [...contract.buyerOrg.users, ...contract.sellerOrg.users];
-      const deadline = contract.deliveryDeadline.toLocaleDateString("pt-BR");
-      await Promise.all(
-        users.map((u) =>
-          this.email.send({
-            to: u.email,
-            subject: `Prazo de entrega se aproxima — contrato ${contract.number}`,
-            html: `<p>O contrato <strong>${contract.number}</strong> tem entrega prevista para <strong>${deadline}</strong> (dentro de ${DEADLINE_WARNING_DAYS} dias).</p>`,
-          }),
-        ),
-      );
-      await this.prisma.contract.update({
-        where: { id: contract.id },
-        data: { deadlineWarningSentAt: new Date() },
+      const { subject, html } = contractDeadlineWarningEmail({
+        contractNumber: contract.contractNumber,
+        deliveryDate: contract.deliveryDeadline.toLocaleDateString('pt-BR'),
       });
+      try {
+        await this.email.send({ to: contract.buyer.email, subject, html });
+      } catch (err) {
+        this.logger.error(
+          `Falha ao avisar prazo do contrato ${contract.contractNumber}`,
+          err instanceof Error ? err.message : '',
+        );
+      }
     }
-
-    this.logger.log(`Aviso de prazo enviado para ${contracts.length} contrato(s)`);
     return contracts.length;
   }
 }

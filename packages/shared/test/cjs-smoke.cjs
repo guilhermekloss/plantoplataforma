@@ -1,11 +1,15 @@
-// Smoke test: garante que @plantor/shared funciona via require() puro,
-// não só via import — pegou um ERR_PACKAGE_PATH_NOT_EXPORTED em produção
-// antes porque só os testes (Vitest/bundler) usavam import.
-const assert = require("node:assert");
-const shared = require("../dist/index.js");
+// Smoke test: garante que @plantor/shared carrega via require() puro (CommonJS),
+// do mesmo jeito que a API compilada o consome em runtime. Os testes do Vitest
+// usam import/bundler e não pegam um ERR_PACKAGE_PATH_NOT_EXPORTED ou um
+// "require is not defined in ES module scope" — este script pega.
+// Rode depois do build: npm run test:cjs-smoke --workspace=@plantor/shared
+const assert = require('node:assert');
+const shared = require('@plantor/shared');
 
-assert.strictEqual(typeof shared.hashContract, "function", "hashContract deveria existir");
-assert.strictEqual(typeof shared.kgToSacas, "function", "kgToSacas deveria existir");
-assert.deepStrictEqual(shared.CROPS, ["SOJA", "MILHO", "TRIGO"]);
+assert.strictEqual(typeof shared.canonicalHash, 'function', 'canonicalHash deveria existir');
+assert.strictEqual(typeof shared.canTransition, 'function', 'canTransition deveria existir');
+assert.strictEqual(typeof shared.calculatePriceAdjustment, 'function');
+assert.ok(shared.GRAIN_TYPES.includes('soja'), 'GRAIN_TYPES deveria incluir soja');
+assert.strictEqual(shared.SACK_WEIGHT_KG, 60);
 
-console.log("OK: @plantor/shared carrega via require() (CommonJS)");
+console.log('OK: @plantor/shared carrega via require() (CommonJS)');

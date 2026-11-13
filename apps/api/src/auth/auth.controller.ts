@@ -1,39 +1,62 @@
-import { Body, Controller, Post, UseGuards } from "@nestjs/common";
-import { AuthService } from "./auth.service";
-import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
-import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CurrentUser, Public, Roles } from './decorators';
+import { AuthService } from './auth.service';
+import type { AccessTokenPayload } from './token.service';
 import {
   acceptInviteSchema,
-  issueInviteSchema,
+  inviteSchema,
   loginSchema,
+  refreshSchema,
+  registerSchema,
   type AcceptInviteDto,
-  type IssueInviteDto,
+  type InviteDto,
   type LoginDto,
-} from "./dto/auth.schemas";
-import type { TenantContext } from "../common/cls/tenant-context";
+  type RefreshDto,
+  type RegisterDto,
+} from './auth.dto';
 
-@Controller("auth")
+@Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
-  @Post("login")
+  @Public()
+  @Post('register')
+  register(@Body(new ZodValidationPipe(registerSchema)) dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Public()
+  @HttpCode(200)
+  @Post('login')
   login(@Body(new ZodValidationPipe(loginSchema)) dto: LoginDto) {
-    return this.auth.login(dto);
+    return this.authService.login(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Post("invite")
-  async issueInvite(
-    @Body(new ZodValidationPipe(issueInviteSchema)) dto: IssueInviteDto,
-    @CurrentUser() user: TenantContext,
+  @Public()
+  @HttpCode(200)
+  @Post('refresh')
+  refresh(@Body(new ZodValidationPipe(refreshSchema)) dto: RefreshDto) {
+    return this.authService.refresh(dto.refreshToken);
+  }
+
+  // Apenas cooperativa/trading (admin|operator) podem convidar produtores.
+  @Roles('admin', 'operator')
+  @HttpCode(200)
+  @Post('invite')
+  invite(
+    @CurrentUser() user: AccessTokenPayload,
+    @Body(new ZodValidationPipe(inviteSchema)) dto: InviteDto,
   ) {
-    await this.auth.issueInvite(dto.email, user.tenantId, user.name);
-    return { status: "enviado" };
+    return this.authService.invite(user, dto);
   }
 
-  @Post("invite/accept")
-  acceptInvite(@Body(new ZodValidationPipe(acceptInviteSchema)) dto: AcceptInviteDto) {
-    return this.auth.acceptInvite(dto);
+  @Public()
+  @Post('accept-invite/:token')
+  acceptInvite(
+    @Param('token') token: string,
+    @Body(new ZodValidationPipe(acceptInviteSchema)) dto: AcceptInviteDto,
+  ) {
+    return this.authService.acceptInvite(token, dto);
   }
 }

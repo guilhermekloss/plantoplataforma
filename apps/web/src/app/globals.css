@@ -2,10 +2,80 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --font-poppins: "Poppins", system-ui, sans-serif;
+@layer base {
+  :root {
+    /* Identidade Plantor: terracota/laranja sobre cinza-claro quente */
+    --background: 40 13% 95%;
+    --foreground: 20 8% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 8% 12%;
+    --primary: 16 73% 52%; /* terracota Plantor */
+    --primary-foreground: 24 100% 98%;
+    --secondary: 40 12% 91%;
+    --secondary-foreground: 20 10% 18%;
+    --muted: 40 12% 92%;
+    --muted-foreground: 30 5% 40%;
+    --accent: 18 60% 94%;
+    --accent-foreground: 16 60% 30%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 38 12% 86%;
+    --input: 38 12% 86%;
+    --ring: 16 73% 52%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 20 12% 9%;
+    --foreground: 40 13% 95%;
+    --card: 20 10% 12%;
+    --card-foreground: 40 13% 95%;
+    --primary: 16 78% 56%;
+    --primary-foreground: 24 100% 98%;
+    --secondary: 20 8% 18%;
+    --secondary-foreground: 40 13% 95%;
+    --muted: 20 8% 18%;
+    --muted-foreground: 30 6% 64%;
+    --accent: 16 40% 22%;
+    --accent-foreground: 18 80% 88%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 20 8% 22%;
+    --input: 20 8% 22%;
+    --ring: 16 78% 56%;
+  }
 }
 
-body {
-  @apply bg-white text-neutral-900;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::selection {
+    @apply bg-primary/20;
+  }
+}
+
+@layer utilities {
+  /* Entrada suave dos blocos principais das páginas */
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-fade-up {
+    animation: fade-up 0.4s ease-out both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-up {
+      animation: none;
+    }
+  }
 }

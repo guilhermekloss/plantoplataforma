@@ -1,34 +1,40 @@
-import { Body, Controller, Param, Post, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
-import { RolesGuard } from "../common/guards/roles.guard";
-import { Roles } from "../common/decorators/roles.decorator";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
-import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { AiService } from "./ai.service";
-import { assistantMessageSchema, type AssistantMessageDto } from "./dto/ai.schemas";
-import type { TenantContext } from "../common/cls/tenant-context";
+import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CurrentUser, Roles } from '../auth/decorators';
+import type { AccessTokenPayload } from '../auth/token.service';
+import { AiService } from './ai.service';
+import { assistantSchema, type AssistantDto } from './ai.dto';
 
-@UseGuards(JwtAuthGuard)
-@Controller("ai")
+// IA é mais cara/lenta — limite mais apertado que o global.
+@Throttle({ default: { ttl: 60_000, limit: 20 } })
+@Controller('ai')
 export class AiController {
   constructor(private readonly ai: AiService) {}
 
-  @Post("contracts/:id/explain")
-  explain(@Param("id") id: string, @CurrentUser() user: TenantContext) {
-    return this.ai.explainContract(id, user.tenantId);
+  @Post('contracts/:id/explain')
+  explain(@CurrentUser() user: AccessTokenPayload, @Param('id') id: string) {
+    return this.ai.explainContract(user, id);
   }
 
-  @UseGuards(RolesGuard)
-  @Roles("PRODUCER")
-  @Post("assistant")
-  chat(@Body(new ZodValidationPipe(assistantMessageSchema)) dto: AssistantMessageDto, @CurrentUser() user: TenantContext) {
-    return this.ai.chat(user.tenantId, dto.message);
+  @Post('assistant')
+  assistant(
+    @CurrentUser() user: AccessTokenPayload,
+    @Body(new ZodValidationPipe(assistantSchema)) dto: AssistantDto,
+  ) {
+    return this.ai.assistant(user, dto.message, dto.history ?? []);
   }
 
-  @UseGuards(RolesGuard)
-  @Roles("PRODUCER")
-  @Post("suggest-contracts")
-  suggestContracts(@CurrentUser() user: TenantContext) {
-    return this.ai.suggestContracts(user.tenantId);
+  // Agente que propõe ofertas/contratos a partir dos lotes aptos do produtor.
+  @Post('suggest-contracts')
+  suggest(@CurrentUser() user: AccessTokenPayload) {
+    return this.ai.suggestContracts(user);
+  }
+
+  // Cooperativa: a qualidade do lote justifica o preço pedido na oferta?
+  @Roles('admin', 'operator')
+  @Post('offers/:id/evaluate')
+  evaluateOffer(@Param('id') id: string) {
+    return this.ai.evaluateOffer(id);
   }
 }

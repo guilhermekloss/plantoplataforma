@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Plantor">
+  <!-- Fundo full-bleed: o mesmo terracota da marca (--primary), seguro para ícone maskable. -->
+  <rect width="512" height="512" fill="#DE5B2B"/>
+  <g transform="translate(112 98) scale(2.4)" fill="#FFF8F5">
+    <path d="M52 10 L78 24 L44 42 L44 92 L24 80 L24 30 Z"/>
+    <path d="M68 122 L42 108 L76 90 L76 40 L96 52 L96 102 Z"/>
+    <circle cx="60" cy="66" r="11"/>
+  </g>
+</svg>

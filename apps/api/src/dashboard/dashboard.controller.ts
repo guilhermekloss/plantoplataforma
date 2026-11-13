@@ -1,16 +1,14 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
-import { CurrentUser } from "../common/decorators/current-user.decorator";
-import { DashboardService } from "./dashboard.service";
-import type { TenantContext } from "../common/cls/tenant-context";
+import { Controller, Get } from '@nestjs/common';
+import { CurrentUser } from '../auth/decorators';
+import type { AccessTokenPayload } from '../auth/token.service';
+import { DashboardService } from './dashboard.service';
 
-@UseGuards(JwtAuthGuard)
-@Controller("dashboard")
+@Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
-  @Get("summary")
-  summary(@CurrentUser() user: TenantContext) {
-    return this.dashboard.summary(user.tenantId);
+  @Get('summary')
+  summary(@CurrentUser() user: AccessTokenPayload) {
+    return this.dashboard.getSummary(user);
   }
 }
