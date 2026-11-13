@@ -88,7 +88,12 @@ docker compose up -d
 cp .env.example .env                 # referência geral
 # apps/api/.env e apps/web/.env.local já vêm com valores de dev apontando p/ o Docker
 
-# 4. Migração + seed (cenário completo de demo: cooperativa + 3 produtores,
+# 3b. Testes e2e: crie apps/api/.env.test (bloco no fim do .env.example)
+
+# 4. Build do pacote compartilhado (a api consome o dist) + migração + seed
+npm run build --workspace=@plantor/shared
+
+# Migração + seed (cenário completo de demo: cooperativa + 3 produtores,
 #    contratos em todos os estados, marketplace com ofertas e dados de campo)
 npm run db:migrate --workspace=@plantor/api
 npm run db:seed    --workspace=@plantor/api
@@ -108,9 +113,8 @@ Credenciais do seed (senha `plantor123`):
 
 O seed é **restaurador**: os contratos da demo são recriados do zero a cada
 execução, então `npm run db:seed` sempre devolve a base ao estado de
-apresentação. Depois de rodar a suíte e2e (que apaga o banco), use
-`npm run db:seed:reset --workspace=@plantor/api` — limpa tudo (inclusive sobras
-dos testes) e re-seeda.
+apresentação. `npm run db:seed:reset --workspace=@plantor/api` limpa tudo e
+re-seeda.
 
 ## Scripts úteis
 
@@ -118,7 +122,8 @@ dos testes) e re-seeda.
 npm run build       # turbo build (shared → api → web)
 npm run typecheck   # tsc em todos os workspaces
 npm run test        # testes unitários (sem DB)
-npm run test:e2e --workspace=@plantor/api        # integração contra Postgres (Docker)
+npm run test:e2e --workspace=@plantor/api        # integração contra Postgres (banco plantor_test)
+npm run test:cjs-smoke --workspace=@plantor/shared # shared carrega via require() (após o build)
 npm run db:seed --workspace=@plantor/api         # re-seed da demo (restaurador, idempotente)
 npm run db:seed:reset --workspace=@plantor/api   # limpa a base inteira e re-seeda (pós-e2e)
 ```
@@ -140,9 +145,11 @@ npm run db:seed:reset --workspace=@plantor/api   # limpa a base inteira e re-see
 | `field-data-events.e2e-spec.ts` | Webhook de colheita (`POST /field-data/events/harvest`): cria lote `colhido`, idempotência por `externalId`, lote no overview, RBAC 403 para cooperativa, payload inválido 400, `/simulate` (botão dev) |
 | `offers.e2e-spec.ts` | Marketplace de lotes: RBAC, oferta → aceite → contrato, ofertas já usadas/contratadas, selo `verification` (`declarado` sem sensores; `sensores` com telemetria+silo+NDVI) |
 
-> Atenção: a suíte e2e roda contra o **mesmo Postgres do dev** (porta 5434) e
-> apaga os dados. Para restaurar a demo depois de rodá-la:
-> `npm run db:seed:reset --workspace=@plantor/api` (limpa tudo e re-seeda).
+> A suíte e2e apaga os dados do banco que usa, por isso roda num banco
+> **separado** (`plantor_test`, mesma instância Docker na 5434), configurado em
+> `apps/api/.env.test` (modelo no `.env.example`). O `test/global-setup.ts`
+> aborta se o nome do banco não contiver "test" e aplica as migrações antes da
+> suíte — o seed de dev nunca é tocado.
 
 ### Pendências de cobertura
 

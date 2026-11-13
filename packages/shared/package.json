@@ -17,6 +17,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:cjs-smoke": "node ./test/cjs-smoke.cjs",
     "lint": "echo \"(no lint configured for @plantor/shared)\""
   },
   "dependencies": {
