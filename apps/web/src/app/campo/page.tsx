@@ -9,7 +9,16 @@ import { BlockTitle, Metric } from '@/components/campo/metric';
 import { SellDecisionPanel } from '@/components/campo/sell-decision-panel';
 import { ClimateMonitorPanel } from '@/components/campo/climate-monitor-panel';
 import { LivestockPanel } from '@/components/campo/livestock-panel';
-import { CostPanel, OperationsTimeline, SoilPanel, StoragePanel } from '@/components/campo/crop-panels';
+import {
+  CostPanel,
+  OperationsTimeline,
+  SatellitePanel,
+  SoilPanel,
+  StoragePanel,
+} from '@/components/campo/crop-panels';
+import { TargetPricePanel } from '@/components/campo/target-price-panel';
+import { SimulateHarvestButton } from '@/components/campo/simulate-harvest-button';
+import { env } from '@/env';
 import { GRAIN_LABELS, formatMoney } from '@/lib/contracts';
 import type { FieldOverview } from '@/lib/field-data';
 
@@ -29,11 +38,16 @@ export default async function CampoPage(): Promise<React.ReactElement> {
     <div className="min-h-screen bg-muted/30">
       <AppHeader name={session.user.name} orgType={session.user.organizationType} />
       <main className="container max-w-3xl animate-fade-up py-6 lg:max-w-6xl">
-        <h1 className="text-2xl font-semibold tracking-tight">Meu campo</h1>
-        <p className="text-sm text-muted-foreground">
-          Tudo que a fazenda envia — máquinas, solo, clima, silo e custos — reunido para você
-          decidir na hora certa.
-        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Meu campo</h1>
+            <p className="text-sm text-muted-foreground">
+              Tudo que a fazenda envia — máquinas, solo, clima, silo e custos — reunido para você
+              decidir na hora certa.
+            </p>
+          </div>
+          {env.NODE_ENV !== 'production' ? <SimulateHarvestButton /> : null}
+        </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Metric label="Fazenda" value={data.farm.name ?? '—'} hint={data.farm.region} />
@@ -67,6 +81,7 @@ export default async function CampoPage(): Promise<React.ReactElement> {
         </div>
 
         <SellDecisionPanel overview={data} />
+        <TargetPricePanel quotes={data.market.quotes} source={data.market.source} />
         <ClimateMonitorPanel overview={data} />
         <LivestockPanel overview={data} />
 
@@ -115,6 +130,7 @@ export default async function CampoPage(): Promise<React.ReactElement> {
                       ) : null}
 
                       <SoilPanel crop={c} />
+                      <SatellitePanel crop={c} />
 
                       <BlockTitle icon={CloudSun}>Clima do ciclo</BlockTitle>
                       <div className="mt-2 grid grid-cols-2 gap-3">

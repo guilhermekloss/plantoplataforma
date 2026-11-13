@@ -153,6 +153,7 @@ npm run db:seed:reset --workspace=@plantor/api   # limpa a base inteira e re-see
 
 ### Pendências de cobertura
 
+- A assistente tem fallback determinístico (`apps/api/src/ai/assistant-fallback.ts`, com testes unitários): sem `GEMINI_API_KEY` ou com o Gemini fora, responde prazos, valores, multa e desconto por umidade a partir dos contratos reais.
 - Não há e2e para `/ai/explain` e `/ai/assistant` nem para `organizations` (`/organizations/producers`) — descobertos manualmente/via smoke test. `/ai/suggest-contracts` é coberto pelo `field-data.e2e-spec.ts` (caminho de fallback determinístico, sem chave Gemini).
 - Os providers simulados (`apps/api/src/field-data/providers/`) não têm testes unitários próprios — são exercitados via e2e do overview. Ao trocar por integrações reais (Fase 03), criar testes de contrato por provider.
 
@@ -184,7 +185,7 @@ npm run db:seed:reset --workspace=@plantor/api   # limpa a base inteira e re-see
 | 6 | Meu campo: telemetria (colheitadeira/plantio/solo/clima), armazenagem, custo x margem, inteligência climática de prazos |
 | 7 | Marketplace de lotes: oferta do produtor (Produção) → aceite da cooperativa/trading (Mercado) → contrato |
 | 8 | IA (Gemini): explicação de contrato, assistente de chat, sugestão de ofertas — com fallback sem chave |
-| 9 | Dados & IoT (providers simulados): NDVI/estimativa pré-colheita, termometria de silo × cláusula de desconto, webhook de colheita (lote automático), preço-alvo/sinal de venda, oferta antecipada por IA, selo "verificado por sensores" — ver [docs/plano-tecnico-dados-iot.md](docs/plano-tecnico-dados-iot.md) |
+| 9 | Dados & IoT (providers simulados): NDVI/estimativa pré-colheita, termometria de silo × cláusula de desconto, webhook de colheita (lote automático), preço-alvo/sinal de venda, oferta antecipada por IA, selo "verificado por sensores" — ver [docs/plano-tecnico-dados-iot.md](docs/plano-tecnico-dados-iot.md). UI em Meu campo: cards de NDVI (curva + estimativa) e de termometria do silo com desconto projetado em R$, preço-alvo por cultura e botão "Simular colheita" (só fora de produção). |
 
 ### Pendências conscientes (Fase 02 / fora do MVP)
 
@@ -192,8 +193,5 @@ npm run db:seed:reset --workspace=@plantor/api   # limpa a base inteira e re-see
 - Blockchain (Polygon), PIX, WhatsApp, ICP-Brasil, oráculos B3/CBOT.
 - Templates de email com React Email (hoje HTML simples).
 - "Salvar rascunho parcial" exigiria tornar campos de `Contract` nullable.
-- UI dos dados novos do módulo 9: cards de NDVI/estimativa e telemetria do silo
-  em Meu campo, campo de preço-alvo, botão "Simular colheita" (dev) e selo
-  "verificado por sensores" no Mercado — a API já expõe tudo.
 - Integrações reais dos providers (Fase 03): ver tabela em
   [Integrações de dados](#integrações-de-dados-simuladas-no-mvp).

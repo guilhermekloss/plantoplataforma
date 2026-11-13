@@ -14,6 +14,7 @@ import { climateIntelligence } from '../field-data/climate-intelligence';
 import { satelliteView } from '../field-data/providers/satellite.provider';
 import { qualityFromReading, type GrainQualityScore } from '../field-data/providers/quality-score';
 import { GeminiService, ChatMessage } from './gemini.service';
+import { fallbackAssistantReply } from './assistant-fallback';
 
 const GRAIN_PT: Record<(typeof GRAIN_TYPES)[number], string> = {
   soja: 'soja',
@@ -150,14 +151,6 @@ export class AiService {
   }
 
   async assistant(user: AccessTokenPayload, message: string, history: ChatMessage[] = []) {
-    if (!this.llm.enabled) {
-      return {
-        enabled: false,
-        reply:
-          'A assistente com inteligência artificial ainda não está ativada nesta conta. Você pode ver seus contratos, prazos e entregas no painel.',
-      };
-    }
-
     const ctx = { orgId: user.orgId, tenantId: user.tenantId, userId: user.sub, role: user.role };
     const contracts = await this.prisma.contract.findMany({
       where: contractAccessWhere(ctx),
@@ -165,6 +158,37 @@ export class AiService {
       orderBy: { deliveryDeadline: 'asc' },
       take: 25,
     });
+
+    // Sem Gemini (ou se ele falhar), responde de forma determinística a partir
+    // dos mesmos contratos — o chat nunca fica mudo.
+    const fallback = (): string =>
+      fallbackAssistantReply(
+        message,
+        contracts.map((c) => {
+          const f = figures(c);
+          return {
+            contractNumber: c.contractNumber,
+            status: c.status,
+            grain: f.grain,
+            quantitySacks: f.quantitySacks,
+            buyerName: c.buyer?.name ?? '—',
+            deadline: f.deadline,
+            daysToDeadline: f.daysToDeadline,
+            perSackBrl: f.perSackBrl,
+            totalBrl: f.totalBrl,
+            totalCents: f.totalCents,
+            maxMoisturePct: f.maxMoisturePct,
+            qualityAdjType: c.qualityAdjType,
+            penaltyPct: f.penaltyPct,
+            penaltyBrl: f.penaltyBrl,
+            hasWashout: f.hasWashout,
+          };
+        }),
+      );
+
+    if (!this.llm.enabled) {
+      return { enabled: false, reply: fallback() };
+    }
 
     const contextBlock =
       contracts.length === 0
@@ -182,11 +206,7 @@ export class AiService {
       return { enabled: true, reply };
     } catch (err) {
       this.logger.warn(`Gemini indisponível (assistant): ${(err as Error).message}`);
-      return {
-        enabled: false,
-        reply:
-          'A assistente com inteligência artificial está temporariamente indisponível (limite de uso atingido). Tente novamente em alguns minutos — enquanto isso, você pode ver seus contratos, prazos e entregas no painel.',
-      };
+      return { enabled: false, reply: fallback() };
     }
   }
 

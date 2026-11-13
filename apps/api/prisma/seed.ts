@@ -26,10 +26,24 @@ import {
  *
  * O seed é RESTAURADOR: contratos da demo são recriados do zero a cada run
  * (children incluídos), então `npm run db:seed` sempre devolve a base ao
- * estado de apresentação. Depois de rodar a suíte e2e (que apaga tudo), use
- * `npm run db:seed:reset` para limpar sobras dos testes e re-seedar.
+ * estado de apresentação. `npm run db:seed:reset` limpa a base inteira e re-seeda.
  */
 const prisma = new PrismaClient();
+
+/**
+ * As datas da demo foram escritas tomando 2026-07-03 como "hoje" da apresentação.
+ * Para a demo não envelhecer (prazos de contrato vencidos, lavoura "em
+ * desenvolvimento" há meses), toda data fixa passa por `demoDate`, que a desloca
+ * pelo número de dias entre essa âncora e o dia em que o seed roda. Assim prazos
+ * futuros continuam futuros e colheitas passadas continuam no passado.
+ */
+const DEMO_ANCHOR_MS = Date.UTC(2026, 6, 3);
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEMO_SHIFT_MS = Math.max(0, Math.floor((Date.now() - DEMO_ANCHOR_MS) / DAY_MS) * DAY_MS);
+
+function demoDate(iso: string): Date {
+  return new Date(Date.parse(iso) + DEMO_SHIFT_MS);
+}
 
 /** Contratos que pertencem à demo — apagados e recriados a cada seed. */
 const SEED_CONTRACT_NUMBERS = [
@@ -118,7 +132,7 @@ const READINGS: CropReading[] = [
     yieldSacksPerHa: 62,
     harvestMoisturePct: 13.8,
     harvestLossSacksPerHa: 1.2,
-    plantingDate: new Date('2024-10-05'),
+    plantingDate: demoDate('2024-10-05'),
     plantPopulationPerHa: 320000,
     soilMoisturePct: 27,
     soilPh: 5.6,
@@ -174,7 +188,7 @@ const READINGS: CropReading[] = [
     yieldSacksPerHa: 121,
     harvestMoisturePct: 18.5,
     harvestLossSacksPerHa: 1.8,
-    plantingDate: new Date('2025-02-20'),
+    plantingDate: demoDate('2025-02-20'),
     plantPopulationPerHa: 62000,
     soilMoisturePct: 24,
     soilPh: 5.7,
@@ -230,7 +244,7 @@ const READINGS: CropReading[] = [
     yieldSacksPerHa: 53,
     harvestMoisturePct: 13.2,
     harvestLossSacksPerHa: 1.0,
-    plantingDate: new Date('2025-05-10'),
+    plantingDate: demoDate('2025-05-10'),
     plantPopulationPerHa: 3300000,
     soilMoisturePct: 22,
     soilPh: 5.8,
@@ -287,7 +301,7 @@ const READINGS: CropReading[] = [
     yieldSacksPerHa: 56, // expectativa (histórico + modelo de safra)
     harvestMoisturePct: null,
     harvestLossSacksPerHa: null,
-    plantingDate: new Date('2026-05-15'),
+    plantingDate: demoDate('2026-05-15'),
     plantPopulationPerHa: 3300000,
     soilMoisturePct: 28,
     soilPh: 5.8,
@@ -468,7 +482,7 @@ const BV_READINGS: CropReading[] = [
     yieldSacksPerHa: 66,
     harvestMoisturePct: 13.5,
     harvestLossSacksPerHa: 1.1,
-    plantingDate: new Date('2025-10-12'),
+    plantingDate: demoDate('2025-10-12'),
     plantPopulationPerHa: 310000,
     soilMoisturePct: 26,
     soilPh: 5.9,
@@ -524,7 +538,7 @@ const BV_READINGS: CropReading[] = [
     yieldSacksPerHa: 118,
     harvestMoisturePct: 19.2,
     harvestLossSacksPerHa: 2.0,
-    plantingDate: new Date('2026-02-25'),
+    plantingDate: demoDate('2026-02-25'),
     plantPopulationPerHa: 60000,
     soilMoisturePct: 23,
     soilPh: 5.8,
@@ -580,7 +594,7 @@ const BV_READINGS: CropReading[] = [
     yieldSacksPerHa: 58, // expectativa (modelo de safra + histórico)
     harvestMoisturePct: null,
     harvestLossSacksPerHa: null,
-    plantingDate: new Date('2026-05-22'),
+    plantingDate: demoDate('2026-05-22'),
     plantPopulationPerHa: 3200000,
     soilMoisturePct: 29,
     soilPh: 5.9,
@@ -626,7 +640,7 @@ const BV_READINGS: CropReading[] = [
     yieldSacksPerHa: 54,
     harvestMoisturePct: 13.0,
     harvestLossSacksPerHa: 1.2,
-    plantingDate: new Date('2025-05-15'),
+    plantingDate: demoDate('2025-05-15'),
     plantPopulationPerHa: 3300000,
     soilMoisturePct: 24,
     soilPh: 5.8,
@@ -674,7 +688,7 @@ const BV_READINGS: CropReading[] = [
     yieldSacksPerHa: 78,
     harvestMoisturePct: 14.8,
     harvestLossSacksPerHa: 1.4,
-    plantingDate: new Date('2026-02-28'),
+    plantingDate: demoDate('2026-02-28'),
     plantPopulationPerHa: 180000,
     soilMoisturePct: 22,
     soilPh: 5.7,
@@ -831,17 +845,17 @@ async function main(): Promise<void> {
       priceCurrency: 'BRL',
       warehouseName: 'Armazém Central',
       warehouseAddress: { street: 'Rod. BR-277 km 580', city: 'Cascavel', state: 'PR' },
-      deliveryDeadline: new Date('2026-08-15T00:00:00.000Z'),
+      deliveryDeadline: demoDate('2026-08-15T00:00:00.000Z'),
       transportResponsible: 'seller',
-      signedAt: new Date('2026-05-20T10:00:00.000Z'),
-      executionStartedAt: new Date('2026-05-20T10:00:00.000Z'),
+      signedAt: demoDate('2026-05-20T10:00:00.000Z'),
+      executionStartedAt: demoDate('2026-05-20T10:00:00.000Z'),
       agronomicData: agronomicSnapshot(soja),
     },
   });
   const sjDelivery = await prisma.delivery.create({
     data: {
       contractId: sjContractSoja.id,
-      deliveryDate: new Date('2026-06-18T00:00:00.000Z'),
+      deliveryDate: demoDate('2026-06-18T00:00:00.000Z'),
       quantitySacks: 600,
       nfeKey: '41260600000000000191001000009876543210987654',
       warehouseReceiptNumber: 'ROM-2026-04512',
@@ -858,7 +872,7 @@ async function main(): Promise<void> {
       deliveryId: sjDelivery.id,
       reportNumber: 'LAB-2026-4471',
       laboratoryName: 'Laboratório Solocria (Cascavel)',
-      reportDate: new Date('2026-06-18T00:00:00.000Z'),
+      reportDate: demoDate('2026-06-18T00:00:00.000Z'),
       moisturePct: 14.5,
       impurityPct: 0.9,
       specificWeightGL: 668,
@@ -889,7 +903,7 @@ async function main(): Promise<void> {
       priceCurrency: 'BRL',
       warehouseName: 'Armazém Oeste',
       warehouseAddress: { street: 'Rod. BR-467 km 12', city: 'Toledo', state: 'PR' },
-      deliveryDeadline: new Date('2026-08-31T00:00:00.000Z'),
+      deliveryDeadline: demoDate('2026-08-31T00:00:00.000Z'),
       transportResponsible: 'seller',
       agronomicData: agronomicSnapshot(milho),
     },
@@ -916,7 +930,7 @@ async function main(): Promise<void> {
       priceCurrency: 'BRL',
       warehouseName: 'Armazém Oeste',
       warehouseAddress: { street: 'Rod. BR-467 km 12', city: 'Toledo', state: 'PR' },
-      deliveryDeadline: new Date('2026-11-30T00:00:00.000Z'),
+      deliveryDeadline: demoDate('2026-11-30T00:00:00.000Z'),
       transportResponsible: 'seller',
       agronomicData: agronomicSnapshot(trigo),
     },
@@ -993,10 +1007,10 @@ async function main(): Promise<void> {
       priceCurrency: 'BRL',
       warehouseName: 'Unidade Cotrijal Guarapuava',
       warehouseAddress: { street: 'Rod. BR-277 km 342', city: 'Guarapuava', state: 'PR' },
-      deliveryDeadline: new Date('2026-09-30T00:00:00.000Z'),
+      deliveryDeadline: demoDate('2026-09-30T00:00:00.000Z'),
       transportResponsible: 'seller',
-      signedAt: new Date('2026-03-15T14:00:00.000Z'),
-      executionStartedAt: new Date('2026-03-15T14:00:00.000Z'),
+      signedAt: demoDate('2026-03-15T14:00:00.000Z'),
+      executionStartedAt: demoDate('2026-03-15T14:00:00.000Z'),
       agronomicData: agronomicSnapshot(bvSoja, BV_REGION, BV_ALQUEIRES),
     },
   });
@@ -1004,7 +1018,7 @@ async function main(): Promise<void> {
   await prisma.delivery.create({
     data: {
       contractId: bvContractSoja.id,
-      deliveryDate: new Date('2026-06-10T00:00:00.000Z'),
+      deliveryDate: demoDate('2026-06-10T00:00:00.000Z'),
       quantitySacks: 20000,
       nfeKey: '41260600000000027255001000001234567890123456',
       warehouseReceiptNumber: 'ROM-2026-08812',
@@ -1013,7 +1027,7 @@ async function main(): Promise<void> {
       qualityAccepted: true,
       paymentAmountCents: BigInt(20000 * 12300), // R$ 2,46 mi
       paymentStatus: 'pago',
-      paymentReleasedAt: new Date('2026-06-14T10:00:00.000Z'),
+      paymentReleasedAt: demoDate('2026-06-14T10:00:00.000Z'),
     },
   });
 
@@ -1039,7 +1053,7 @@ async function main(): Promise<void> {
       priceCurrency: 'BRL',
       warehouseName: 'Unidade Cotrijal Guarapuava',
       warehouseAddress: { street: 'Rod. BR-277 km 342', city: 'Guarapuava', state: 'PR' },
-      deliveryDeadline: new Date('2026-10-31T00:00:00.000Z'),
+      deliveryDeadline: demoDate('2026-10-31T00:00:00.000Z'),
       transportResponsible: 'buyer',
       agronomicData: agronomicSnapshot(bvMilho, BV_REGION, BV_ALQUEIRES),
     },
@@ -1068,11 +1082,11 @@ async function main(): Promise<void> {
       priceCurrency: 'BRL',
       warehouseName: 'Unidade Cotrijal Guarapuava',
       warehouseAddress: { street: 'Rod. BR-277 km 342', city: 'Guarapuava', state: 'PR' },
-      deliveryDeadline: new Date('2025-11-30T00:00:00.000Z'),
+      deliveryDeadline: demoDate('2025-11-30T00:00:00.000Z'),
       transportResponsible: 'seller',
-      signedAt: new Date('2025-08-10T09:00:00.000Z'),
-      executionStartedAt: new Date('2025-08-10T09:00:00.000Z'),
-      settledAt: new Date('2025-11-18T16:00:00.000Z'),
+      signedAt: demoDate('2025-08-10T09:00:00.000Z'),
+      executionStartedAt: demoDate('2025-08-10T09:00:00.000Z'),
+      settledAt: demoDate('2025-11-18T16:00:00.000Z'),
       agronomicData: agronomicSnapshot(bvTrigoVendido, BV_REGION, BV_ALQUEIRES),
     },
   });
@@ -1080,7 +1094,7 @@ async function main(): Promise<void> {
     data: [
       {
         contractId: bvContractTrigo.id,
-        deliveryDate: new Date('2025-10-22T00:00:00.000Z'),
+        deliveryDate: demoDate('2025-10-22T00:00:00.000Z'),
         quantitySacks: 40000,
         nfeKey: '41251000000000027255001000004567890123456789',
         warehouseReceiptNumber: 'ROM-2025-11204',
@@ -1089,11 +1103,11 @@ async function main(): Promise<void> {
         qualityAccepted: true,
         paymentAmountCents: BigInt(40000 * 7600),
         paymentStatus: 'pago',
-        paymentReleasedAt: new Date('2025-10-27T10:00:00.000Z'),
+        paymentReleasedAt: demoDate('2025-10-27T10:00:00.000Z'),
       },
       {
         contractId: bvContractTrigo.id,
-        deliveryDate: new Date('2025-11-10T00:00:00.000Z'),
+        deliveryDate: demoDate('2025-11-10T00:00:00.000Z'),
         quantitySacks: 41000,
         nfeKey: '41251100000000027255001000007890123456789012',
         warehouseReceiptNumber: 'ROM-2025-11893',
@@ -1102,7 +1116,7 @@ async function main(): Promise<void> {
         qualityAccepted: true,
         paymentAmountCents: BigInt(41000 * 7600),
         paymentStatus: 'pago',
-        paymentReleasedAt: new Date('2025-11-14T10:00:00.000Z'),
+        paymentReleasedAt: demoDate('2025-11-14T10:00:00.000Z'),
       },
     ],
   });

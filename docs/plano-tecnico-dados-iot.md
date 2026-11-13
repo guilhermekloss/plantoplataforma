@@ -4,7 +4,8 @@
 > `apps/api/src/field-data/providers/`, endpoints novos no `field-data`,
 > selo de verificação no marketplace e e2e cobrindo tudo
 > (`field-data.e2e-spec.ts`, `field-data-events.e2e-spec.ts`, `offers.e2e-spec.ts`).
-> Pendente: UI (cards de NDVI/silo/alvo nas telas Meu campo/Produção/Mercado).
+> UI concluída em 2026-11-13: cards de NDVI/estimativa e termometria do silo,
+> preço-alvo e "Simular colheita" em Meu campo; selo de verificação no Mercado.
 
 > Objetivo: transformar os dados do módulo **Meu campo** de painéis passivos em
 > **automações que disparam ação** (criar lote, alertar desconto, sugerir oferta),

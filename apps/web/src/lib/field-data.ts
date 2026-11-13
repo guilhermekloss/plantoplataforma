@@ -47,6 +47,20 @@ export interface ProductionCost {
   breakdown?: Record<string, number>;
 }
 
+export interface SiloReadingPoint {
+  at: string;
+  grainTempC: number;
+  ambientTempC: number;
+  intergranularMoisturePct: number | null;
+}
+
+/** Termometria do silo (provider simulado — Procer/QualyAgro na Fase 03). */
+export interface SiloTelemetry {
+  source: string;
+  history: SiloReadingPoint[];
+  trend: { tempCPerDay: number; moisturePctPerDay: number; warming: boolean };
+}
+
 export interface StorageInfo {
   siloName?: string;
   grainTempC?: number | null;
@@ -55,6 +69,29 @@ export interface StorageInfo {
   capacitySacks?: number;
   lastReadingAt?: string;
   tempAlert: boolean;
+  telemetry: SiloTelemetry | null;
+}
+
+/** Silo aquecendo × cláusula de umidade do contrato em aberto (desconto projetado). */
+export interface StorageRisk {
+  contractId: string;
+  contractNumber: string;
+  deliveryDeadline: string;
+  projectedMoisturePct: number;
+  maxMoisturePct: number;
+  discountPct: number;
+  estDiscountCents: number;
+  message: string;
+}
+
+/** NDVI de satélite (provider simulado — Sentinel-2/EOSDA na Fase 03). */
+export interface SatelliteView {
+  source: string;
+  ndviSeries: { date: string; ndvi: number }[];
+  peakNdvi: number;
+  estimatedYieldSacksPerHa: number | null;
+  yieldRangeSacksPerHa: { min: number; max: number } | null;
+  note: string;
 }
 
 export interface SellDecision {
@@ -98,7 +135,9 @@ export interface CropTelemetry {
   operations: FieldOperation[] | null;
   soilAnalysis: SoilAnalysis | null;
   productionCost: ProductionCost | null;
+  satellite: SatelliteView | null;
   storage: StorageInfo | null;
+  storageRisk: StorageRisk | null;
   decision: SellDecision | null;
   pricing: {
     indicativePriceCents: number | null;
@@ -186,6 +225,10 @@ export interface MarketQuote {
   delta30dPct: number;
   trend: 'alta' | 'queda' | 'estavel';
   series: number[];
+  /** Preço-alvo do produtor (centavos/saca) — null quando não definido. */
+  targetPriceCents: number | null;
+  /** Cotação atual cruzou o preço-alvo → sinal de venda. */
+  targetHit: boolean;
 }
 
 export interface MarketFeed {
